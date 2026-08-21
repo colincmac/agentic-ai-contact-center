@@ -1,0 +1,30 @@
+# Canonical publication hand-off. This is editorial metadata, never publication automation.
+schemaVersion: "1.0.0"
+templateVersion: "1.0.0"
+solution:
+  id: "REPLACE_ME-solution-id"
+  repository: "REPLACE_ME-owner/REPLACE_ME-repository"
+  ref: main
+  visibility: public
+review:
+  status: not_proposed
+candidates:
+  - id: "REPLACE_ME-candidate-id"
+    format: field-note
+    reviewStatus: not_proposed
+    workingTitle: "REPLACE_ME: working title"
+    audience: "REPLACE_ME: intended readers"
+    takeaway: "REPLACE_ME: proposed takeaway"
+    sourceArtifacts: []
+    # A current-record requires path and statusAsReviewed. A reconstructed
+    # decision requires a provenance note and must not have either field.
+    canonicalAdrs: []
+    operations: []
+    evidence: []
+    evidenceGaps: []
+    detailsToGeneralize: []
+    excludedMaterial: []
+globalExclusions:
+  - "Credentials, tokens, connection strings, and tenant or subscription identifiers."
+  - "Customer names, private URLs, internal hostnames, and unsupported claims."
+extensions: {}

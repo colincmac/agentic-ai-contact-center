@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/colincmac/solution-artifact-template/docs/solution-manifest.schema.json",
+  "title": "Solution Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "templateVersion", "repository", "solution", "entryPoints", "synthesisExclusions", "publicationReview"],
+  "definitions": {
+    "repositoryRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!#)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![\\\\/])(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|#|$))[^\\u0000-\\u001F]+$",
+      "description": "A forward-slash, repository-relative path, optionally followed by a Markdown fragment. Existence and fragment resolution are checked by the conformance validator."
+    }
+  },
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "templateVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "name", "visibility", "defaultRef"],
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "visibility": { "enum": ["public", "private"] },
+        "defaultRef": { "type": "string", "minLength": 1 }
+      }
+    },
+    "solution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "summary", "maturity"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "maturity": { "enum": ["concept", "prototype", "showcase", "pilot", "production", "maintenance", "deprecated"] }
+      }
+    },
+    "entryPoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overview", "architectureIndex", "adrIndex", "deployment", "runbooks", "observability", "evidence", "publicationBrief"],
+      "properties": {
+        "overview": { "$ref": "#/definitions/repositoryRelativePath" },
+        "architectureIndex": { "$ref": "#/definitions/repositoryRelativePath" },
+        "adrIndex": { "$ref": "#/definitions/repositoryRelativePath" },
+        "deployment": { "$ref": "#/definitions/repositoryRelativePath" },
+        "runbooks": { "$ref": "#/definitions/repositoryRelativePath" },
+        "observability": { "$ref": "#/definitions/repositoryRelativePath" },
+        "evidence": { "$ref": "#/definitions/repositoryRelativePath" },
+        "publicationBrief": { "$ref": "#/definitions/repositoryRelativePath" },
+        "implementation": { "anyOf": [{ "$ref": "#/definitions/repositoryRelativePath" }, { "type": "null" }] },
+        "automation": { "anyOf": [{ "$ref": "#/definitions/repositoryRelativePath" }, { "type": "null" }] }
+      }
+    },
+    "synthesisExclusions": {
+      "type": "array",
+      "description": "Editorial guidance only, not access controls.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason"],
+        "oneOf": [{ "required": ["path"] }, { "required": ["glob"] }],
+        "properties": {
+          "path": { "$ref": "#/definitions/repositoryRelativePath" },
+          "glob": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "publicationReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiresHumanReview", "notes"],
+      "properties": {
+        "requiresHumanReview": { "type": "boolean" },
+        "notes": { "type": "string", "minLength": 1 }
+      }
+    },
+    "extensions": { "type": "object", "description": "Repository-specific metadata outside the canonical contract." }
+  }
+}

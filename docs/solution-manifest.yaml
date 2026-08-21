@@ -1,0 +1,30 @@
+# Canonical entry-point contract. `synthesisExclusions` are editorial guidance,
+# not access controls; permissions, sanitization, and human review still apply.
+schemaVersion: "1.0.0"
+templateVersion: "1.0.0"
+repository:
+  owner: "REPLACE_ME-owner"
+  name: "REPLACE_ME-repository"
+  visibility: public
+  defaultRef: main
+solution:
+  id: "REPLACE_ME-solution-id"
+  name: "REPLACE_ME Solution Name"
+  summary: "REPLACE_ME: what this solution does, in plain language."
+  maturity: prototype
+entryPoints:
+  overview: docs/README.md
+  architectureIndex: docs/architecture/README.md
+  adrIndex: docs/adr/README.md
+  deployment: docs/README.md#deployment-and-provisioning
+  runbooks: docs/runbooks/README.md
+  observability: docs/README.md#observability
+  evidence: docs/evidence/README.md
+  publicationBrief: docs/publishing/blog-brief.yaml
+  implementation: null
+  automation: null
+synthesisExclusions: []
+publicationReview:
+  requiresHumanReview: true
+  notes: "A publication brief proposes content only; a knowledgeable human must review accuracy and sanitization."
+extensions: {}

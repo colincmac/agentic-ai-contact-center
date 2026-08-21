@@ -1,0 +1,13 @@
+/docs/solution-manifest.yaml @colincmac
+/docs/solution-manifest.schema.json @colincmac
+/docs/*.schema.json @colincmac
+/docs/**/*.schema.json @colincmac
+/docs/publishing/** @colincmac
+/docs/evidence/** @colincmac
+/.github/agents/** @colincmac
+/.github/instructions/** @colincmac
+/.github/workflows/** @colincmac
+/scripts/** @colincmac
+/test/** @colincmac
+/package.json @colincmac
+/package-lock.json @colincmac

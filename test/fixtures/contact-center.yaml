@@ -1,0 +1,82 @@
+manifest:
+  schemaVersion: "1.0.0"
+  templateVersion: "1.0.0"
+  repository:
+    owner: example
+    name: contact-center-platform
+    visibility: private
+    defaultRef: main
+  solution:
+    id: contact-center-platform
+    name: Contact Center Platform
+    summary: Routes customer contacts to supported service teams.
+    maturity: pilot
+  entryPoints:
+    overview: docs/README.md
+    architectureIndex: docs/architecture/README.md
+    adrIndex: docs/adr/README.md
+    deployment: docs/README.md#deployment-and-provisioning
+    runbooks: docs/runbooks/README.md
+    observability: docs/README.md#observability
+    evidence: docs/evidence/README.md
+    publicationBrief: docs/publishing/blog-brief.yaml
+  synthesisExclusions: []
+  publicationReview:
+    requiresHumanReview: true
+    notes: Publication is reviewed by a solution owner.
+brief:
+  schemaVersion: "1.0.0"
+  templateVersion: "1.0.0"
+  solution:
+    id: contact-center-platform
+    repository: example/contact-center-platform
+    ref: main
+    visibility: private
+  review:
+    status: reviewed
+    reviewedAt: "2026-08-20T12:00:00Z"
+    reviewer: Solution owner
+  candidates:
+    - id: routing-decision
+      format: architectural-decision
+      reviewStatus: reviewed
+      reviewedAt: "2026-08-20T12:00:00Z"
+      reviewer: Solution owner
+      workingTitle: Routing contacts without exposing customer data
+      audience: Platform architects
+      takeaway: Separate routing policy from contact content.
+      sourceArtifacts:
+        - path: docs/architecture/README.md
+      canonicalAdrs:
+        - id: "0001"
+          path: docs/adr/README.md
+          statusAsReviewed: accepted
+          kind: current-record
+      operations:
+        - path: docs/runbooks/README.md
+      evidence:
+        - class: modeled
+          claim: Routing policy can be tested independently.
+          path: docs/evidence/README.md
+      evidenceGaps: ["No production throughput measurement is available."]
+      detailsToGeneralize: ["Use generic queues and team roles."]
+      excludedMaterial: ["Customer identifiers"]
+    - id: operational-lesson
+      format: field-note
+      reviewStatus: draft
+      workingTitle: Observing contact routing changes
+      audience: Operations engineers
+      takeaway: Pair routing changes with observable signals.
+      sourceArtifacts:
+        - path: docs/README.md
+      canonicalAdrs: []
+      operations:
+        - path: docs/runbooks/README.md
+      evidence:
+        - class: gap
+          claim: Alert coverage is still being defined.
+      evidenceGaps: ["Alert thresholds are not measured."]
+      detailsToGeneralize: ["Avoid vendor-specific alert names."]
+      excludedMaterial: ["Internal hostnames"]
+  globalExclusions:
+    - Customer data

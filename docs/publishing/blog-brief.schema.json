@@ -1,0 +1,126 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/colincmac/solution-artifact-template/docs/publishing/blog-brief.schema.json",
+  "title": "Publication Brief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "templateVersion", "solution", "review", "candidates", "globalExclusions"],
+  "definitions": {
+    "reviewStatus": { "enum": ["not_proposed", "draft", "ready_for_review", "reviewed"] },
+    "repositoryRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!#)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![\\\\/])(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|#|$))[^\\u0000-\\u001F]+$",
+      "description": "A forward-slash, repository-relative path, optionally followed by a Markdown fragment. Existence and fragment resolution are checked by the conformance validator."
+    },
+    "localReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": { "path": { "$ref": "#/definitions/repositoryRelativePath" }, "note": { "type": "string", "minLength": 1 } }
+    },
+    "adr": {
+      "type": "object",
+      "description": "A current-record points to a contemporaneous ADR and records its reviewed status. A reconstructed decision has only retrospective provenance and therefore has no ADR path or status.",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/definitions/repositoryRelativePath" },
+        "statusAsReviewed": { "enum": ["proposed", "accepted", "superseded", "deprecated"] },
+        "kind": { "enum": ["current-record", "reconstructed"] },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "current-record" } }, "required": ["kind"] },
+          "then": { "required": ["path", "statusAsReviewed"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "reconstructed" } }, "required": ["kind"] },
+          "then": {
+            "required": ["note"],
+            "not": {
+              "anyOf": [
+                { "required": ["path"] },
+                { "required": ["statusAsReviewed"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "claim"],
+      "properties": {
+        "class": { "enum": ["measured", "modeled", "assumed", "gap"] },
+        "claim": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/definitions/repositoryRelativePath" },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "format", "reviewStatus", "workingTitle", "audience", "takeaway", "sourceArtifacts", "canonicalAdrs", "operations", "evidence", "evidenceGaps", "detailsToGeneralize", "excludedMaterial"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "format": { "enum": ["architectural-decision", "large-scale-lessons", "reference-architecture", "field-note"] },
+        "reviewStatus": { "$ref": "#/definitions/reviewStatus" },
+        "workingTitle": { "type": "string", "minLength": 1 },
+        "audience": { "type": "string", "minLength": 1 },
+        "takeaway": { "type": "string", "minLength": 1 },
+        "sourceArtifacts": { "type": "array", "items": { "$ref": "#/definitions/localReference" } },
+        "canonicalAdrs": { "type": "array", "items": { "$ref": "#/definitions/adr" } },
+        "operations": { "type": "array", "items": { "$ref": "#/definitions/localReference" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "evidenceGaps": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "detailsToGeneralize": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "excludedMaterial": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "reviewedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+        "reviewer": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reviewStatus": { "enum": ["draft", "ready_for_review", "reviewed"] } } },
+          "then": { "properties": { "audience": { "pattern": "^(?!REPLACE_ME).+" }, "takeaway": { "pattern": "^(?!REPLACE_ME).+" }, "sourceArtifacts": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "reviewStatus": { "enum": ["ready_for_review", "reviewed"] } } },
+          "then": { "required": ["reviewedAt", "reviewer"] }
+        }
+      ]
+    }
+  },
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "templateVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "solution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "repository", "ref", "visibility"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "ref": { "type": "string", "minLength": 1 },
+        "visibility": { "enum": ["public", "private"] }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/definitions/reviewStatus" },
+        "reviewedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+        "reviewer": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [{ "if": { "properties": { "status": { "const": "reviewed" } } }, "then": { "required": ["reviewedAt", "reviewer"] } }]
+    },
+    "candidates": { "type": "array", "items": { "$ref": "#/definitions/candidate" } },
+    "globalExclusions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "extensions": { "type": "object", "description": "Repository-specific metadata outside the canonical contract." }
+  }
+}

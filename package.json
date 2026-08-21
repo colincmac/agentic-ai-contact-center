@@ -1,0 +1,22 @@
+{
+  "name": "solution-artifact-template",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Validation tooling for the solution-artifact-template's solution manifest and publication brief.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "validate": "node scripts/validate.mjs",
+    "validate:initialized": "node scripts/validate.mjs --require-initialized",
+    "check-initialized": "npm run validate:initialized",
+    "validate:conformance": "node scripts/validate.mjs --conformance",
+    "test": "node --test test/*.test.mjs",
+    "pretest": "npm run validate"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "yaml": "^2.9.0"
+  }
+}
