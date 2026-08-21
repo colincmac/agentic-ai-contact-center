@@ -1,10 +1,8 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Extensions.AI;
 using Microsoft.Extensions.AI;
-using static Extensions.AI.ExtensionsAIJsonUtilities;
 
 namespace Agents.AI;
 

@@ -1,10 +1,3 @@
-using System.Reflection;
-using Agents.AI.ContactCenter.Calling.Core;
-using Microsoft.AspNetCore;
-using Microsoft.Graph.Models;
-using Microsoft.Graph.Models.Partners.Billing;
-using static Extensions.AI.OpenTelemetry.SemanticConventions.GenAI;
-
 namespace Agents.AI.ContactCenter.Calling;
 
 /// <summary>

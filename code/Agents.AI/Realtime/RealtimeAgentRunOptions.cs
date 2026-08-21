@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
-using Extensions.AI.RealtimeVoice;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 

@@ -1,24 +1,11 @@
-using System;
 using System.ClientModel.Primitives;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
-using OpenAI;
-using OpenAI.Assistants;
-using OpenAI.Audio;
-using OpenAI.Chat;
-using OpenAI.Containers;
-using OpenAI.Embeddings;
-using OpenAI.Files;
-using OpenAI.Images;
 using OpenAI.Realtime;
-using OpenAI.Responses;
-using static Extensions.AI.OpenAIClientExtensions;
 
 namespace Extensions.AI;
 

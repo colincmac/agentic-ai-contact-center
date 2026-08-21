@@ -1,6 +1,5 @@
 using System.Collections.Frozen;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Tools;
 

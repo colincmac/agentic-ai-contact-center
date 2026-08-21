@@ -4,8 +4,6 @@ using System.Text.Json;
 using Agents.AI.Realtime;
 using Azure.AI.AgentServer.Invocations;
 using Extensions.AI.Contents;
-using Extensions.AI.Realtime;
-using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;

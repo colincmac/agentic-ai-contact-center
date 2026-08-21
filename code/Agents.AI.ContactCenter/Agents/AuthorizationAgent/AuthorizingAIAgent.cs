@@ -1,15 +1,10 @@
 using System.Runtime.CompilerServices;
-using System.Security.Claims;
 using Agents.AI.ContactCenter.AITools;
 using Agents.AI.Sandbox;
-using Agents.AI.Extensions.ToolApproval;
 using Agents.AI.Realtime;
-using Extensions.AI.RealtimeVoice;
 using Microsoft.Agents.AI;
-using Microsoft.Azure.Cosmos.Linq;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Agents.AI.ContactCenter.Agents.AuthorizationAgent;
 

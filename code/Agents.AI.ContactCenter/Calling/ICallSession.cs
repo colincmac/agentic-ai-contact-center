@@ -1,5 +1,3 @@
-using Agents.AI.ContactCenter.IvrWorkflow;
-
 namespace Agents.AI.ContactCenter.Calling;
 
 /// <summary>One active IVR call.</summary>

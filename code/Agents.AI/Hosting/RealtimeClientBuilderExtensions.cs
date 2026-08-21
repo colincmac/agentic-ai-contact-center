@@ -1,19 +1,13 @@
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
-using Azure;
-using Azure.AI.Inference;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using OllamaSharp;
 using Aspire.OpenAI;
-using OpenAI;
 using Microsoft.Extensions.Logging;
-using Extensions.AI.RealtimeVoice;
 using Microsoft.Shared.Diagnostics;
 using Azure.AI.VoiceLive;
-using Extensions.AI.RealtimeVoice.AzureVoiceLive;
 using Extensions.AI.Realtime.AzureVoiceLive;
 using OpenAI.Realtime;
 

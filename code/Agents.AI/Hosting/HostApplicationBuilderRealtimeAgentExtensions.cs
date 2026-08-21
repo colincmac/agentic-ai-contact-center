@@ -1,4 +1,3 @@
-using System;
 using Agents.AI.Realtime;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;

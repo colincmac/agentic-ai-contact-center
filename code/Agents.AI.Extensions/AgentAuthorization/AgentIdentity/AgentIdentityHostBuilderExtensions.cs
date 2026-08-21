@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Identity.Abstractions;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.TokenCacheProviders.InMemory;
-using Microsoft.Shared.Diagnostics;
 
 namespace Agents.AI.Extensions.AgentAuthorization.AgentIdentity;
 

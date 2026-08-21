@@ -1,14 +1,10 @@
 // Copyright (c) Microsoft. All rights reserved.
 #pragma warning disable IDE1006 // Naming Styles
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 
 #if ASPNETCORE

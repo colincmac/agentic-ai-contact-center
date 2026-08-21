@@ -1,7 +1,6 @@
 using System.Text;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow.Blueprint;
-using Agents.AI.ContactCenter.IvrWorkflow.Tools;
 using Microsoft.Extensions.AI;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Compilation;

@@ -6,7 +6,6 @@ using Agents.AI.Sandbox;
 using Agents.AI.ContactCenter.Calling.Strategies.Composite;
 using Agents.AI.ContactCenter.Configuration;
 using Agents.AI.ContactCenter.Coordination;
-using Agents.AI.ContactCenter.IvrWorkflow;
 using Agents.AI.ContactCenter.IvrWorkflow.Catalog;
 using Agents.AI.ContactCenter.IvrWorkflow.Execution;
 using Agents.AI.ContactCenter.Telemetry;

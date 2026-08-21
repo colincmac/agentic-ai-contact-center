@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
-using Azure.Communication.CallAutomation;
-using Microsoft.Graph.Models;
-
 namespace Agents.AI.ContactCenter.Calling;
 
 

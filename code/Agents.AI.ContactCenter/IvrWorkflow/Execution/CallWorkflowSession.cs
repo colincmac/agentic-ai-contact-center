@@ -1,5 +1,4 @@
 using Agents.AI.ContactCenter.Authentication;
-using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;

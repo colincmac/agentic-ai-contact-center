@@ -1,5 +1,4 @@
 using System.Threading.Channels;
-using Agents.AI.ContactCenter.IvrWorkflow;
 using Agents.AI.ContactCenter.Configuration;
 using Agents.AI.ContactCenter.State;
 using Agents.AI.ContactCenter.State.Projections;

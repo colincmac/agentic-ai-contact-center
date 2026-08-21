@@ -1,4 +1,3 @@
-using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.State;
 using Agents.AI.ContactCenter.State.Projections;
 

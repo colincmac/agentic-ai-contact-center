@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Security.Claims;
-using System.Text;
 using Agents.AI.Extensions.ToolApproval;
 using Agents.AI.Realtime;
 using Microsoft.Agents.AI;

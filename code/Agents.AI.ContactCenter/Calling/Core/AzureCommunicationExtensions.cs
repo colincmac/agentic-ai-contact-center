@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
-using Azure.Communication.CallAutomation;
 using Azure.Messaging.EventGrid.SystemEvents;
 
 namespace Agents.AI.ContactCenter.Calling.Core;

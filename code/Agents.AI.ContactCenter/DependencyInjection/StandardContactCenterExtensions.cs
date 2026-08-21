@@ -1,4 +1,3 @@
-using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.Configuration;
 using Agents.AI.ContactCenter.IvrWorkflow.Loading;

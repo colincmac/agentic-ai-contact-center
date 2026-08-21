@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using Agents.AI.Extensions.AITools;
 using Agents.AI.Extensions.RealtimeAgentHelpers;
-using Agents.AI.Extensions.RealtimeAgentHelpers.Prompting;
 using Agents.AI.Extensions.SessionManagement;
 using Agents.AI.Realtime;
 using Microsoft.Agents.AI;

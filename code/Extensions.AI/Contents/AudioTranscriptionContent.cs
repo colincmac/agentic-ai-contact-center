@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 
 namespace Extensions.AI.Contents;

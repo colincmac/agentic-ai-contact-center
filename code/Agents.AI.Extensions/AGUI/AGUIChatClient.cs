@@ -1,20 +1,12 @@
 // Copyright (c) Microsoft. All rights reserved.
 #pragma warning disable IDE1006 // Naming Styles
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Shared.Diagnostics;
 
 namespace Agents.AI.Extensions.AGUI;
 
