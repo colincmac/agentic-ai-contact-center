@@ -1,7 +1,7 @@
 ---
 name: Blog Brief Generator
 description: Updates docs/publishing/blog-brief.yaml using only approved source artifacts already present in this repository, marking evidence gaps and sensitive material. Never writes to or publishes the external blog.
-tools: ["codebase", "search", "edit"]
+tools: ["search/codebase", "search", "edit"]
 ---
 
 # Blog Brief Generator

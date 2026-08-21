@@ -15,9 +15,9 @@ manifest:
     overview: docs/README.md
     architectureIndex: docs/architecture/README.md
     adrIndex: docs/adr/README.md
-    deployment: docs/README.md#deployment-and-provisioning
+    deployment: docs/architecture/aks-topology.md
     runbooks: docs/runbooks/README.md
-    observability: docs/README.md#observability
+    observability: docs/monitoring/README.md
     evidence: docs/evidence/README.md
     publicationBrief: docs/publishing/blog-brief.yaml
   synthesisExclusions: []

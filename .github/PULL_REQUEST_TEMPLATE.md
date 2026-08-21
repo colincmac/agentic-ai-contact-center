@@ -1,6 +1,6 @@
 ## Summary
 
-REPLACE_ME: what this PR does and why.
+Describe what this PR changes and why.
 
 ## Review checklist
 
@@ -30,5 +30,4 @@ REPLACE_ME: what this PR does and why.
 ## Validation
 
 - [ ] `npm ci && npm test` passes locally.
-- [ ] `npm run validate:initialized` passes for a repository created from this
-      template (the canonical template intentionally retains `REPLACE_ME`).
+- [ ] `npm run validate:initialized` passes.

@@ -1,71 +1,56 @@
 # Publishing
 
-This folder is where this repository curates a **publication brief** for an
-external technical blog. It is the only part of this repository that the
-blog's own authoring tooling is expected to read, and only at authoring
-time — never at build or deploy time.
+How reviewed material from this repository reaches an external architecture blog — and what that process is explicitly not allowed to do.
 
-## Ownership boundary
+## The contract
 
-- This repository owns the brief: a small, reviewed set of pointers into
-  real [architecture](../architecture/README.md), [ADR](../adr/README.md),
-  [runbook](../runbooks/README.md), and [evidence](../evidence/README.md)
-  documents, plus notes on what to generalize and what to exclude.
-- The external blog owns synthesis: turning the brief into an actual draft,
-  choosing narrative and framing, and publishing.
-- The blog's production site build must never depend on this repository.
-  The brief is read once, by authoring tooling, to create a separate draft
-  elsewhere.
+- This public repository is the **source of truth** for the accelerator artifacts. It never publishes a blog post.
+- The blog repository (`colincmac/ctrlaltarchitect`) consumes metadata **at authoring time only**, while a human writes a post. Nothing here pushes, deploys, or opens pull requests there.
+- [`blog-brief.yaml`](blog-brief.yaml) is **reviewed synthesis metadata**, not blog prose. It says *what could be written about, from which sources, with what evidence, and with which caveats*. It does not contain the article.
+- ADRs remain canonical here. A published post may summarize a decision; it never becomes the record of that decision, and it never restates a status that the ADR file does not carry.
 
-Excluding something here (or in `synthesisExclusions` in
-[`../solution-manifest.yaml`](../solution-manifest.yaml)) is a curation aid,
-**not** a security boundary. Repository permissions, sanitization, and human
-review remain required regardless of what this brief says.
+## Files
 
-## Supported formats
+| File | Purpose |
+| --- | --- |
+| [`blog-brief.yaml`](blog-brief.yaml) | Candidate material mapped to the four blog formats, with `sourceArtifacts`, `canonicalAdrs`, operations, evidence, `evidenceGaps`, `detailsToGeneralize`, and `excludedMaterial`. |
+| [`../solution-manifest.yaml`](../solution-manifest.yaml) | The machine-readable entry points a consumer starts from, and the paths excluded from synthesis. |
+| [`blog-brief.schema.json`](blog-brief.schema.json) | Immutable canonical v1.0.0 schema for this brief. |
+| [`../solution-manifest.schema.json`](../solution-manifest.schema.json) | Immutable canonical v1.0.0 schema for the manifest. |
+| [`../evidence/README.md`](../evidence/README.md) | The measured / modeled / assumed / gap classification every candidate must respect. |
 
-The brief uses a `candidates` array, so it can propose multiple posts in any
-of four supported formats:
+## The four formats
 
-- **Architectural decision** — a single consequential decision, its
-  alternatives, and its consequences.
-- **Large-scale lessons** — lessons learned operating this solution at
-  scale, backed by evidence.
-- **Reference architecture** — a reusable pattern illustrated by this
-  solution's architecture.
-- **Field note** — a short, narrow observation from building or operating
-  this solution.
+| Format | Answers | Typical spine |
+| --- | --- | --- |
+| `architectural-decision` | "Why this and not that?" | One ADR, its alternatives, and its consequences. |
+| `large-scale-lessons` | "What breaks as this grows?" | The constraint that forces the design, stated as modeled unless measured. |
+| `reference-architecture` | "What does the shape look like?" | An architecture view plus the decisions that produced it. |
+| `field-note` | "What surprised us in practice?" | A narrow, concrete observation from work done in this repository. |
 
-## Starter content
+## Rules for anyone (or anything) updating the brief
 
-- [`blog-brief.yaml`](blog-brief.yaml) — the brief itself. Placeholder
-  values are intentionally obvious (for example `"REPLACE_ME"`) so it
-  cannot be mistaken for reviewed content.
-- [`../publishing/blog-brief.schema.json`](blog-brief.schema.json) — JSON
-  Schema used by `npm test` to catch malformed briefs before they are ever
-  read by anything external.
+1. **Never invent.** No customer context, no outcomes, no validation, no ADR history that is not in the ADR file.
+2. **Carry the evidence class through.** A modeled scaling target is published as a design target, never as a result. Copy every `evidence` entry with `class: gap` into `evidenceGaps`; it may remain in both forms.
+3. **Cite real paths.** Every source artifact, current ADR, operational artifact, and non-gap evidence entry must resolve in this repository; validation enforces this.
+4. **Record canonical ADR provenance.** A real ADR uses `kind: current-record`, a path, and a lowercase `statusAsReviewed`. Preserve primary/supporting context in `note`. A reconstructed decision has only an ID, `kind: reconstructed`, and a provenance note.
+5. **Generalize deliberately.** Tenant, subscription, resource-account, phone-number, and endpoint specifics get generalized before anything is written.
+6. **Exclude, do not delete.** Cached vendor snapshots under `docs/resources/**` stay in the repository and stay out of synthesis.
+7. **Re-review after ADR or architecture changes.** Use an ISO-8601 timestamp and reviewer where required. Pin `solution.ref` in a follow-up commit to the exact commit containing the reviewed artifact changes, so the final commit does not reference itself.
 
-Each candidate has a stable `id`, `format`, working title, audience, takeaway,
-local source/operations provenance, ADR objects, and evidence objects. ADRs
-use one of two shapes:
+## Workflow
 
-- A `current-record` requires `id`, `kind`, `path`, and
-  `statusAsReviewed` (`proposed`, `accepted`, `superseded`, or `deprecated`).
-- A `reconstructed` decision requires `id`, `kind`, and a non-empty provenance
-  `note`. It must not include `path` or `statusAsReviewed`, because no
-  contemporaneous ADR exists.
+1. Someone updates architecture, ADRs, runbooks, monitoring, or evidence in the normal way.
+2. The solution-artifact curator ([`.github/agents/solution-artifact-curator.agent.md`](../../.github/agents/solution-artifact-curator.agent.md)) keeps the manifest, architecture index, and evidence catalog in step with reality.
+3. The blog brief generator ([`.github/agents/blog-brief-generator.agent.md`](../../.github/agents/blog-brief-generator.agent.md)) proposes brief updates. Its output is a proposal; a human reviews and merges it here.
+4. An author working in the blog repository reads the brief, follows the links back to the canonical documents, and writes the post there.
 
-Evidence uses only `measured`, `modeled`, `assumed`, and `gap`. Canonical
-candidate field names are `sourceArtifacts`, `canonicalAdrs`,
-`detailsToGeneralize`, and `excludedMaterial`; aliases are not accepted.
+## Validation
 
-## Review checklist before marking a candidate ready
+```shell
+npm ci
+npm test
+npm run validate:initialized
+```
 
-- [ ] Every source artifact referenced actually exists and is current.
-- [ ] Every claim maps to an ADR, runbook, or evidence record — not memory.
-- [ ] Reconstructed decisions include provenance and do not imply that a
-      contemporaneous ADR exists.
-- [ ] Evidence gaps are stated explicitly, not implied to be resolved.
-- [ ] No credentials, tenant/subscription IDs, customer names, private
-      URLs, or unsupported performance claims are present.
-- [ ] A human who understands this solution has reviewed the entry.
+Validates both documents against the canonical v1.0.0 schemas, checks that the brief and manifest describe the same solution and repository, resolves declared paths and fragments, enforces glob exclusions and ADR/evidence conditions, rejects retired aliases, and checks agent/instruction frontmatter. General Markdown links still require review.

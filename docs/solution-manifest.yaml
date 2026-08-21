@@ -1,30 +1,134 @@
-# Canonical entry-point contract. `synthesisExclusions` are editorial guidance,
-# not access controls; permissions, sanitization, and human review still apply.
+# Solution artifact manifest
+#
+# A small, machine-readable contract that lets an approved external consumer
+# (currently the architecture blog repository `colincmac/ctrlaltarchitect`)
+# discover this repository's canonical documentation at authoring time and
+# synthesize from it, without copying or reorganizing the implementation.
+#
+# This file is descriptive metadata, not a security boundary or an access
+# control mechanism. `synthesisExclusions` is authoring guidance about what is
+# not useful or not appropriate to synthesize from; it does not protect
+# anything and must not be relied on as protection. Repository visibility,
+# branch protection, and secret management remain the only real controls.
+#
+# Shape: the immutable solution-artifact-template v1.0.0 contract, vendored at
+# docs/solution-manifest.schema.json. Repository-specific metadata lives under
+# `extensions` so the canonical top-level contract remains strict.
+#
+# Maintained by hand (see .github/agents/solution-artifact-curator.agent.md).
+# Validated by the root Node.js tooling under scripts/.
+
 schemaVersion: "1.0.0"
 templateVersion: "1.0.0"
+
 repository:
-  owner: "REPLACE_ME-owner"
-  name: "REPLACE_ME-repository"
+  owner: colincmac
+  name: agentic-ai-contact-center
+  # Publication is still gated by human review even though the accelerator and
+  # its canonical artifacts are intended to be public.
   visibility: public
   defaultRef: main
+
 solution:
-  id: "REPLACE_ME-solution-id"
-  name: "REPLACE_ME Solution Name"
-  summary: "REPLACE_ME: what this solution does, in plain language."
+  id: agentic-ai-contact-center
+  name: "Agentic AI Contact Center Accelerator"
+  summary: "A public Azure solution accelerator for contact-center voice agents using Azure Communication Services Call Automation, Teams Phone Extensibility, Dynamics 365 Contact Center integration patterns, and pluggable realtime AI providers."
+  # The architecture, automation, and operational guidance are present; the
+  # demonstrator implementation will be added under code/ in a later change.
   maturity: prototype
+
+# Repository-relative entry points. Each path must exist and must be a local
+# path — no absolute paths, no parent traversal, no URLs. A trailing
+# "#fragment" is allowed and is checked against the target document's headings.
 entryPoints:
+  # Start here — what exists, and which document owns which question.
   overview: docs/README.md
+  # System shape, interactions, deployment view, and the reader-intent map.
   architectureIndex: docs/architecture/README.md
+  # Canonical decisions, alternatives, and consequences. ADRs own *why*;
+  # statuses live in the ADR files themselves.
   adrIndex: docs/adr/README.md
-  deployment: docs/README.md#deployment-and-provisioning
+  # Deployment topology and sizing guidance. Executable infrastructure is
+  # linked separately under `automation` until the demonstrator is added.
+  deployment: docs/architecture/aks-topology.md
+  # Operator procedures for day-2 tasks and failure modes.
   runbooks: docs/runbooks/README.md
-  observability: docs/README.md#observability
+  # End-to-end correlation model, KQL joins, dashboards, and the panel library.
+  observability: docs/monitoring/README.md
+  # What is measured, what is modeled, what is assumed, and where the gaps are.
   evidence: docs/evidence/README.md
+  # Reviewed synthesis metadata describing publication-safe candidate material.
   publicationBrief: docs/publishing/blog-brief.yaml
+  # The demonstrator solution has not yet been migrated into code/.
   implementation: null
-  automation: null
-synthesisExclusions: []
+  # Provisioning automation for TPE resource accounts, Entra app registration,
+  # and ACS binding.
+  automation: scripts/teams-extensibility
+
+# Authoring guidance, not a security boundary and not an access control.
+# Excluded paths stay in the repository; they are simply never synthesized from.
+synthesisExclusions:
+  - glob: "code/**/bin/**"
+    reason: "Build output."
+  - glob: "code/**/obj/**"
+    reason: "Build output."
+  - glob: "code/**/node_modules/**"
+    reason: "Vendored frontend dependencies."
+  - glob: "test/**/*.received.*"
+    reason: "Verify snapshot test artifacts."
+
 publicationReview:
   requiresHumanReview: true
-  notes: "A publication brief proposes content only; a knowledgeable human must review accuracy and sanitization."
-extensions: {}
+  notes: >-
+    A publication brief is a proposal, not a publish action. This repository
+    never publishes: a person with context on this solution reviews
+    docs/publishing/blog-brief.yaml for accuracy, sanitization, and
+    appropriateness, and an author then writes in the blog repository. Because
+    this repository is public, candidates may link only reviewed artifacts
+    after sanitization and human review.
+
+extensions:
+  repositoryRole: source-of-truth
+  canonicalDomains:
+    - "architecture decisions (ADRs)"
+    - "architecture views"
+    - "operational runbooks"
+    - "monitoring and correlation model"
+    - "provisioning and deployment automation"
+    - "evidence and validation status"
+  supportingPaths:
+    - id: infrastructure
+      title: "Azure infrastructure entry point"
+      path: infra/main.bicep
+      intent: "Infrastructure entry point for the accelerator's Azure resources."
+    - id: provisioning_scripts
+      title: "Provisioning automation"
+      path: scripts/teams-extensibility
+      intent: "PowerShell automation for TPE resource accounts, Entra app registration, and ACS binding."
+    - id: monitoring_scripts
+      title: "Monitoring automation"
+      path: scripts/monitoring/assemble_dashboards.ps1
+      intent: "Assembles the Grafana dashboard model from the panel library."
+  consumers:
+    - id: ctrlaltarchitect
+      repository: colincmac/ctrlaltarchitect
+      relationship: authoring-time-only
+      direction: pull
+      notes: "The blog repository reads approved metadata while a human authors a post. This repository never publishes, deploys, or opens pull requests against the blog repository. Nothing here is generated from the blog."
+  synthesis:
+    guidance: "Synthesize from the canonical documents listed in `entryPoints` and `extensions.supportingPaths`. Prefer linking a reader back to a canonical document over restating it. Treat ADR statuses in the ADR files as authoritative."
+    requiresGeneralization:
+      - "Tenant, subscription, resource-group, and resource account identifiers in provisioning guides."
+      - "Phone numbers, DIDs, and any caller identifiers used in samples."
+      - "Endpoint hostnames and connection-string shapes in configuration examples."
+    neverPublish:
+      - "Secrets, keys, certificates, and connection strings."
+      - "Customer names, engagement context, or any claim of customer outcomes."
+      - "Anything not already present in this repository as reviewed documentation."
+  validation:
+    tooling: scripts/validate.mjs
+    checks:
+      - "The manifest and publication brief parse as YAML and validate against the canonical v1.0.0 schemas."
+      - "The brief's solution id, repository, and visibility agree with this manifest."
+      - "Every path in either document is a safe repository-relative path that resolves, and every '#fragment' resolves to a heading."
+      - "Agent and instruction files under .github carry valid frontmatter."

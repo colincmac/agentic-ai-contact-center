@@ -151,17 +151,16 @@ test("unsafe candidate paths and exclusion globs fail", () => {
   );
 });
 
-test("starter manifest leaves canonical entry points available for synthesis", () => {
-  const { data: starter } = readYamlFile(path.join(repoRoot, "docs", "solution-manifest.yaml"));
-  assert.deepEqual(starter.synthesisExclusions, []);
-  assert.deepEqual(validateManifestDocument(starter, manifestSchema, repoRoot), []);
+test("solution manifest leaves canonical entry points available for synthesis", () => {
+  const { data: manifest } = readYamlFile(path.join(repoRoot, "docs", "solution-manifest.yaml"));
+  assert.deepEqual(validateManifestDocument(manifest, manifestSchema, repoRoot), []);
 
-  starter.synthesisExclusions = [{
+  manifest.synthesisExclusions = [{
     glob: "docs/**",
     reason: "Overly broad example.",
   }];
   assert.ok(
-    validateManifestDocument(starter, manifestSchema, repoRoot)
+    validateManifestDocument(manifest, manifestSchema, repoRoot)
       .some((error) => error.includes("cover all canonical entryPoints"))
   );
 });

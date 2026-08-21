@@ -1,0 +1,49 @@
+{
+  "environment": "<dev|uat|prod>",
+  "azure": {
+    "tenantId": "<YOUR_AZURE_TENANT_ID>",
+    "subscriptionId": "<YOUR_AZURE_SUBSCRIPTION_ID>",
+    "resourceGroupName": "<YOUR_RESOURCE_GROUP_NAME>",
+    "location": "eastus",
+
+    "acsName": "<YOUR_ACS_RESOURCE_NAME>",
+    "acsGlobalId": "<YOUR_ACS_IMMUTABLE_RESOURCE_ID>",
+
+    "botServiceName": "<YOUR_BOT_SERVICE_NAME>",
+    "botMessagingEndpoint": "https://example.invalid/api/messages",
+
+    "keyVaultName": null,
+    "clientSecretName": "tpe-entra-app-secret",
+
+    "eventGrid": {
+      "enabled": true,
+      "subscriptionName": "tpe-incoming-call",
+      "endpointType": "webhook",
+      "endpointUrl": null,
+      "filterToResourceAccountOnly": true
+    },
+
+    "rbac": {
+      "assignAcsContributorToCurrentUser": false
+    }
+  },
+  "teams": {
+    "tenantId": "<YOUR_TEAMS_TENANT_ID>",
+
+    "entraAppName": "IVR Agent Identity",
+    "existingEntraAppClientId": null,
+    "createClientSecret": true,
+    "clientSecretLifetimeMonths": 12,
+    "grantAdminConsent": true,
+
+    "resourceAccountUpn": "ivr@contoso.com",
+    "resourceAccountDisplayName": "IVR Agent",
+
+    "phoneNumber": "<YOUR_PHONE_NUMBER>",
+    "phoneNumberType": "CallingPlan",
+    "usageLocation": "US",
+
+    "additionalLicenseSkuIds": []
+  }
+}
+

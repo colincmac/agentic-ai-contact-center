@@ -12,7 +12,22 @@ keep a hard line between what was **measured**, what was **modeled**, and
 what is **assumed** — never blur these together, here or in anything
 derived from here.
 
-## Starter content
+## Current state
+
+No evidence records have been migrated into this repository yet. Architecture
+capacity figures are modeled targets, and implementation behavior remains
+unverified here until the demonstrator and its tests are added under `code/`.
+
+Known gaps include:
+
+- no end-to-end call latency or transfer measurements;
+- no concurrent-call or per-pod WebSocket benchmark;
+- no multi-cluster failover or region-drain exercise;
+- no deployed monitoring validation against real traffic; and
+- no repository implementation tests for degradation, ownership leases, or
+  folded call-state behavior.
+
+## Creating a record
 
 - [`templates/evidence-record.template.md`](templates/evidence-record.template.md) —
   copy this to create a new evidence record (for example
@@ -20,10 +35,5 @@ derived from here.
 
 ## Index
 
-REPLACE_ME: list your evidence records here as you create them, for
-example:
-
-- `REPLACE_ME.md` — REPLACE_ME (what was measured/validated, and when)
-
-Until real evidence records exist, use the template above as the starting
-point and add a line here for each one you create.
+No evidence records are currently available. Add each reviewed record here
+when real measurements, drills, models, or explicit assumptions are captured.

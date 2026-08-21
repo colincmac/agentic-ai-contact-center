@@ -11,9 +11,8 @@ authoring flow.
   against their schemas, verifies local provenance and Markdown fragments,
   and confirms the manifest and brief agree.
 - Keep documentation changes close to the code they describe.
-- In a repository generated from this template, also run
-  `npm run validate:initialized`; the canonical template itself intentionally
-  retains `REPLACE_ME` placeholders.
+- Run `npm run validate:initialized` to ensure publication metadata contains no
+  unresolved initialization placeholders.
 
 ## When do you need an ADR?
 

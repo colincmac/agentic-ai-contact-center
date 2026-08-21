@@ -18,32 +18,32 @@ test("the committed solution-manifest.yaml and blog-brief.yaml validate cleanly"
   assert.deepEqual(errors, []);
 });
 
-test("generated repository initialization fails with placeholders and passes after replacement", () => {
+test("initialized repository rejects reintroduced placeholders", () => {
   const fixtureRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "solution-artifact-initialization-")
   );
   try {
-    fs.cpSync(path.join(repoRoot, "docs"), path.join(fixtureRoot, "docs"), {
-      recursive: true,
-    });
-    fs.cpSync(path.join(repoRoot, ".github"), path.join(fixtureRoot, ".github"), {
-      recursive: true,
-    });
+    for (const relativePath of [".github", "code", "docs", "infra", "scripts", "test"]) {
+      fs.cpSync(path.join(repoRoot, relativePath), path.join(fixtureRoot, relativePath), {
+        recursive: true,
+      });
+    }
+
+    const manifestPath = path.join(fixtureRoot, "docs", "solution-manifest.yaml");
+    const manifestWithPlaceholder = fs.readFileSync(manifestPath, "utf8").replace(
+      'name: "Agentic AI Contact Center Accelerator"',
+      'name: "REPLACE_ME"'
+    );
+    fs.writeFileSync(manifestPath, manifestWithPlaceholder);
 
     const unresolved = runValidation(fixtureRoot, { requireInitialized: true });
     assert.ok(unresolved.some((error) => error.includes("unresolved REPLACE_ME")));
 
-    for (const relativePath of [
-      path.join("docs", "solution-manifest.yaml"),
-      path.join("docs", "publishing", "blog-brief.yaml"),
-    ]) {
-      const filePath = path.join(fixtureRoot, relativePath);
-      const initialized = fs.readFileSync(filePath, "utf8").replaceAll(
-        "REPLACE_ME",
-        "example"
-      );
-      fs.writeFileSync(filePath, initialized);
-    }
+    const initialized = fs.readFileSync(manifestPath, "utf8").replaceAll(
+      "REPLACE_ME",
+      "Agentic AI Contact Center Accelerator"
+    );
+    fs.writeFileSync(manifestPath, initialized);
 
     assert.deepEqual(
       runValidation(fixtureRoot, { requireInitialized: true }),

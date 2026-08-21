@@ -1,188 +1,114 @@
-# Solution Artifact Template
+# Agentic AI Contact Center Accelerator
 
-A reusable, framework-neutral GitHub repository template for solution
-implementations. It keeps executable assets (code, infrastructure,
-automation) together with the canonical architecture artifacts that explain
-and govern them, while providing small, reviewed, publication-safe inputs to
-an external technical blog.
+A public Azure solution accelerator for designing contact-center voice agents
+with Azure Communication Services (ACS) Call Automation, Teams Phone
+Extensibility (TPE), Dynamics 365 Contact Center integration patterns, and
+pluggable realtime AI providers.
 
-This template does not scaffold an application, a cloud topology, or a
-documentation site. It scaffolds the **contract** a solution repository uses
-to stay coherent as it grows: a manifest of entry points, starter templates
-for architecture/ADR/runbook/evidence content, and a publication brief that
-an external blog can consume without ever depending on this repository at
-build time.
+This repository captures architecture, decisions, provisioning automation,
+operational guidance, and publication-safe lessons from a large contact-center
+onboarding scenario. It is a reusable reference, not a claim that one topology
+or capacity model fits every deployment.
 
-## Who should use this template
+> [!IMPORTANT]
+> The architecture and documentation are available now. The demonstrator .NET
+> solution has not yet been migrated into [`code/`](code/), and
+> [`infra/main.bicep`](infra/main.bicep) is not yet a deployable accelerator
+> template. Treat scaling figures as modeled targets unless an evidence record
+> explicitly says otherwise.
 
-Use this template when you are building or documenting a solution
-implementation (or a technical investigation) that will:
+## What is here
 
-- Own its own source of truth for architecture, decisions, and operations,
-  regardless of language or stack (.NET, Java, Python, JavaScript,
-  infrastructure-only, or mixed solutions).
-- Need a lightweight, machine-checkable contract so tooling (including AI
-  coding agents) can find the right documents without guessing.
-- Optionally feed a curated, reviewed brief into an external blog or content
-  pipeline, without giving that pipeline direct access to the repository.
+| Area | Start here |
+| --- | --- |
+| End-to-end call path | [`docs/architecture/call-flow.md`](docs/architecture/call-flow.md) |
+| Architecture views and reader map | [`docs/architecture/README.md`](docs/architecture/README.md) |
+| Architecture decisions | [`docs/adr/README.md`](docs/adr/README.md) |
+| TPE onboarding and automation | [`docs/runbooks/teams-configuration/tpe-onboarding-guide.md`](docs/runbooks/teams-configuration/tpe-onboarding-guide.md) |
+| Transfer to a human agent | [`docs/architecture/transfer-patterns.md`](docs/architecture/transfer-patterns.md) |
+| AKS topology and modeled scale tiers | [`docs/architecture/aks-topology.md`](docs/architecture/aks-topology.md) |
+| Monitoring and correlation design | [`docs/monitoring/README.md`](docs/monitoring/README.md) |
+| Operational guides | [`docs/runbooks/README.md`](docs/runbooks/README.md) |
+| Evidence status and known gaps | [`docs/evidence/README.md`](docs/evidence/README.md) |
 
-Do **not** use this template as an application framework starter or an
-infrastructure-as-code starter kit. It intentionally contains no
-application source code and no cloud-specific deployment tooling.
+The machine-readable artifact map is
+[`docs/solution-manifest.yaml`](docs/solution-manifest.yaml).
 
-## Ownership boundary: solution artifacts vs. blog synthesis
+## Architecture at a glance
 
-| Concern | Owned by | Where |
-|---|---|---|
-| Source code, infrastructure, automation | This repository | wherever your solution normally puts them |
-| Architecture views, ADRs, runbooks, operational assets, evidence | This repository | `docs/architecture`, `docs/adr`, `docs/runbooks`, `docs/evidence` |
-| Entry-point contract for tooling | This repository | `docs/solution-manifest.yaml` |
-| Curated synthesis inputs for an external blog | This repository (authoring time only) | `docs/publishing/blog-brief.yaml` |
-| Blog post drafting, editing, and publishing | The external blog, as a **separate repository/system** | not here |
+The reference flow keeps telephony control in ACS Call Automation and keeps the
+application boundary on HTTPS callbacks and bidirectional media WebSockets:
 
-This repository always owns **executable truth**. The external blog always
-owns **synthesis**. The `docs/publishing/blog-brief.yaml` file is a curated,
-human-reviewed hand-off: it is authored here, at your own pace, and is read
-once by the blog's own authoring tooling to create a **separate draft** in
-the blog's system. The production blog site build must never fetch from or
-otherwise depend on this repository at build or deploy time.
+1. A PSTN call reaches a Teams resource account through Teams Phone.
+2. TPE connects that resource account to ACS.
+3. Event Grid delivers the incoming-call event to the application.
+4. ACS Call Automation owns call control and media streaming.
+5. A conversation strategy drives realtime AI, NLU, or deterministic DTMF.
+6. The call can escalate to a human agent through the selected contact-center
+   transfer pattern.
 
-Excluding something from the blog brief (or listing it under "excluded
-material") is a **publication curation aid**, not a security boundary.
-Repository permissions, secret scanning, sanitization, and human review
-remain required regardless of what the brief says.
+See the [call-flow narrative](docs/architecture/call-flow.md) and
+[sequence diagrams](docs/architecture/sequence-diagrams.md) for the detailed
+interactions.
 
-## Creating a repository from this template
+## Accelerator status
 
-1. Click **Use this template** on GitHub (or, if this repository is not yet
-   marked as a template, ask the owner to enable **Settings > General >
-   Template repository** first — that setting is not changed by this PR).
-2. Clone your new repository.
-3. Replace placeholders:
-   - Update the title and description in this `README.md`.
-   - Edit `docs/solution-manifest.yaml`: set the `repository` and `solution`
-     objects, then update every entry point path to match your real documents
-     (or remove optional entry points you do not use).
-   - Rename/author your architecture, ADR, runbook, and evidence documents
-     from the templates in `docs/architecture/templates/`,
-     `docs/adr/templates/`, `docs/runbooks/templates/`, and
-     `docs/evidence/templates/`.
-   - Leave `docs/publishing/blog-brief.yaml` mostly empty until you have real,
-     reviewed content to share with the blog; its placeholder values are
-     intentionally obvious (for example `"REPLACE_ME"`) so you cannot
-     accidentally publish them unedited.
-4. Run `npm ci && npm test && npm run validate:initialized`. The final command
-   deliberately fails while any `REPLACE_ME` value remains.
+| Capability | Status |
+| --- | --- |
+| Architecture views and ADRs | Available; open decisions remain marked `Proposed` or `Draft` |
+| TPE setup automation | Available for review and environment-specific testing |
+| Monitoring model, KQL, and dashboard design | Reference artifacts; deployment assets are not fully migrated |
+| Bicep infrastructure | Placeholder, not deployable |
+| .NET demonstrator and implementation tests | Pending migration to `code/` |
+| Measured performance and failover evidence | Not yet recorded in this repository |
 
-## Authoring flow
+## Using the artifacts
 
-1. **Implement or investigate.** Build the solution, or run the technical
-   investigation, in whatever stack fits. This template does not constrain
-   that work.
-2. **Record decisions.** Capture consequential decisions as ADRs in
-   `docs/adr/` as you make them — not retroactively, and not for every
-   trivial code change (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
-3. **Maintain architecture, runbooks, and evidence.** Keep
-   `docs/architecture/`, `docs/runbooks/`, and `docs/evidence/` current as
-   the solution changes. Evidence records distinguish measured results from
-   modeled targets, assumptions, and gaps; never imply proof you do not have.
-4. **Curate a publication brief.** When (and only when) you want to propose
-   external content, update `docs/publishing/blog-brief.yaml` with reviewed,
-   sanitized pointers into the artifacts above.
-5. **Let the blog create a separate draft.** The blog's own authoring
-   tooling reads the brief at authoring time and creates a draft in its own
-   system. This repository is never a runtime or build dependency of the
-   published site.
+Start with the architecture and ADRs before adapting scripts or topology. For
+TPE onboarding, review the prerequisites and safeguards in the
+[enterprise onboarding guide](docs/runbooks/teams-configuration/tpe-onboarding-guide.md),
+then configure the samples under
+[`scripts/teams-extensibility/`](scripts/teams-extensibility/) for a
+non-production environment.
 
-## Template versioning and upgrades
-
-GitHub's **Use this template** action is a **one-time copy**. It does not
-create any ongoing link between this template and repositories created from
-it, so future improvements to this template are **not** automatically
-propagated to repositories that already exist.
-
-- The current template contract version is recorded in the root
-  [`VERSION`](VERSION) file and mirrored in
-  `docs/solution-manifest.yaml` under `schemaVersion`.
-- When this template changes in a way that affects the manifest or brief
-  schema, the schema version is bumped and the change is documented.
-- To adopt improvements in an existing repository created from this
-  template, see [`docs/MIGRATION.md`](docs/MIGRATION.md): compare your
-  `schemaVersion` to the current template version, and apply changes
-  additively.
+Do not treat sample limits, SKUs, retry values, or replica counts as universal
+recommendations. Validate them against current Azure service documentation,
+regional availability, quota, security policy, and workload evidence.
 
 ## Validation
 
-This template ships a small, dependency-light Node.js validator (see
-[`docs/README.md`](docs/README.md#validation)) that checks that
-`docs/solution-manifest.yaml` and `docs/publishing/blog-brief.yaml`:
+The repository uses the `solution-artifact-template` v1.0.0 contract to keep
+its manifest and publication brief coherent.
 
-- parse as YAML,
-- validate against their canonical JSON Schemas under `docs/`, and
-- reference only existing, repository-relative, non-traversing local paths
-  for entry points and publication provenance,
-- resolve Markdown entry-point fragments, and
-- keep the manifest and brief solution identity, repository, and visibility
-  aligned.
-
-```bash
+```powershell
 npm ci
 npm test
 npm run validate:initialized
 ```
 
-Template maintainers use `npm test`; the canonical starter intentionally
-retains placeholders. Repositories created from the template additionally use
-`npm run validate:initialized` before considering initialization complete.
-From this canonical checkout, validate a populated external repository without
-changing it by running:
+These checks validate the machine-readable publication contract and its local
+references. They do not prove that the Azure topology has been deployed or
+load tested.
 
-```bash
-npm run validate:conformance -- ../path-to-solution-repository
-```
+## Publication model
 
-A publication candidate uses only the canonical fields `sourceArtifacts`,
-`canonicalAdrs`, `detailsToGeneralize`, and `excludedMaterial`. Each
-`canonicalAdrs` item is either a `current-record`, which requires `path` and
-`statusAsReviewed`, or `reconstructed`, which requires a provenance `note` and
-must not claim a contemporaneous path or status.
+This repository owns the canonical solution artifacts. The external blog
+repository, [`colincmac/ctrlaltarchitect`](https://github.com/colincmac/ctrlaltarchitect),
+may consume the reviewed
+[`docs/publishing/blog-brief.yaml`](docs/publishing/blog-brief.yaml) at authoring
+time to create a separate post draft. The blog has no runtime or build-time
+dependency on this repository, and no automated publishing occurs here.
 
-A GitHub Actions workflow (`.github/workflows/validate.yml`) runs the same
-checks on every pull request and on pushes to the default branch.
+Customer names, engagement details, environment identifiers, secrets, private
+endpoints, and unsupported outcome claims are excluded from publication.
 
-## Repository layout
+## Contributing
 
-```
-README.md                      This guide
-VERSION                         Machine-readable template contract version
-CONTRIBUTING.md                 Contributor guidance
-docs/
-  README.md                     Documentation hub
-  solution-manifest.yaml        Entry-point contract for this solution
-  solution-manifest.schema.json JSON Schema for the manifest
-  MIGRATION.md                  Guide for adopting this template in an existing repo
-  architecture/                 Architecture views + templates
-  adr/                           Architecture Decision Records + template
-  runbooks/                      Operational runbooks + template
-  evidence/                      Evidence records + template
-  publishing/                    Blog synthesis brief + schema + guidance
-scripts/                        Validation tooling (Node.js)
-test/                           Validator tests and fixtures
-.github/
-  workflows/validate.yml        CI validation
-  PULL_REQUEST_TEMPLATE.md      PR checklist
-  agents/                       Copilot custom agent definitions
-  instructions/                 Copilot per-path instructions
-```
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing architecture records,
+evidence classifications, runbooks, or publication metadata. Accepted ADRs are
+historical records; supersede them with a new ADR instead of rewriting their
+decisions.
 
-## Owner action required after merge
+## License
 
-Marking a repository as a **template repository** is a GitHub repository
-setting (**Settings > General > Template repository**) and cannot be changed
-by a pull request. After this content is merged, a repository owner must
-enable that setting for **Use this template** to appear.
-
-Repository rulesets, branch protection, automatic branch deletion, secret
-scanning, and creation of the `v1.0.0` tag/release are owner-managed actions
-after merge. This repository does not change those settings or create a
-release automatically.
+Licensed under the terms in [`LICENSE`](LICENSE).

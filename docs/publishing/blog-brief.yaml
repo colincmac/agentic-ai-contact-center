@@ -1,30 +1,288 @@
-# Canonical publication hand-off. This is editorial metadata, never publication automation.
+# Publication brief
+#
+# Reviewed synthesis metadata for the external architecture blog
+# (`colincmac/ctrlaltarchitect`). This file describes *what could be written
+# about*, from which canonical sources, with what evidence, and with which
+# caveats. It is not blog prose and it is not a publication trigger: this
+# repository never publishes.
+#
+# Rules (see docs/publishing/README.md):
+#   - Never invent customer context, outcomes, validation, or ADR history.
+#   - ADR statuses below are transcribed from the ADR files and are only
+#     accurate as of `review.reviewedAt`; the ADR file is always authoritative.
+#   - Modeled targets stay modeled. Evidence classes (`measured`, `modeled`,
+#     `assumed`, `gap`) come from docs/evidence/README.md.
+#   - Public links may point to reviewed artifacts in this repository, but the
+#     post must still generalize environment- and customer-specific details.
+#
+# Shape: the immutable solution-artifact-template v1.0.0 contract, vendored at
+# docs/publishing/blog-brief.schema.json. Validated by scripts/validate.mjs.
+
 schemaVersion: "1.0.0"
 templateVersion: "1.0.0"
+
 solution:
-  id: "REPLACE_ME-solution-id"
-  repository: "REPLACE_ME-owner/REPLACE_ME-repository"
+  # Must match docs/solution-manifest.yaml solution.id.
+  id: agentic-ai-contact-center
+  # Must match docs/solution-manifest.yaml repository owner/name.
+  repository: colincmac/agentic-ai-contact-center
+  # Keep this on the default ref while the brief is draft. Pin it to the
+  # reviewed artifact commit when a candidate becomes ready for review.
   ref: main
   visibility: public
+
 review:
-  status: not_proposed
+  status: draft
+
 candidates:
-  - id: "REPLACE_ME-candidate-id"
+  - id: degradation-ladder
+    format: architectural-decision
+    reviewStatus: draft
+    workingTitle: "Designing a voice agent that degrades instead of failing"
+    audience: "Architects designing realtime AI voice systems who must survive provider quota limits and traffic spikes."
+    takeaway: "Treat realtime AI as a capacity tier, not a hard dependency: define an explicit ladder down to deterministic DTMF, and design per-call state to survive transitions between tiers."
+    sourceArtifacts:
+      - path: docs/adr/0008-graceful-degradation-realtime-to-dtmf.md
+        note: "The ladder itself: tiers, triggers, and consequences."
+      - path: docs/strategies/README.md
+        note: "Strategy catalog and what each tier emits."
+      - path: docs/strategies/conversation-strategies.md
+        note: "Strategy contract and handoff semantics."
+      - path: docs/architecture/aks-topology.md
+        note: "How the tier budgets translate into deployment capacity."
+    canonicalAdrs:
+      - id: ADR-0008
+        path: docs/adr/0008-graceful-degradation-realtime-to-dtmf.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Primary ADR."
+      - id: ADR-0006
+        path: docs/adr/0006-realtime-ai-voicelive-vs-gpt-realtime.md
+        statusAsReviewed: proposed
+        kind: current-record
+        note: "Supporting ADR. Provider choice is open. Do not present a provider as selected."
+      - id: ADR-0007
+        path: docs/adr/0007-dtmf-bidirectional-websocket-vs-callback-api.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+    operations:
+      - path: docs/runbooks/timing-and-retries.md
+        note: "Timeout and retry defaults that bound each tier's behaviour."
+      - path: docs/monitoring/queries.md
+        note: "Joins that would show a degradation event on a real call."
+    evidence:
+      - class: modeled
+        claim: "Per-tier concurrency budgets and the replica counts derived from them."
+        path: docs/architecture/aks-topology.md
+      - class: gap
+        claim: "No implementation or test artifact in this repository currently demonstrates tier fallback or state preservation across a tier swap."
+      - class: gap
+        claim: "No load test has driven the ladder under real concurrency; tier behaviour under saturation is unproven."
+      - class: gap
+        claim: "No measured latency or caller-experience impact for a mid-call degradation."
+      - class: gap
+        claim: "The operator runbook for pinning or unpinning a tier ceiling does not exist yet."
+    evidenceGaps:
+      - "No implementation or test artifact in this repository currently demonstrates tier fallback or state preservation across a tier swap."
+      - "No load test has driven the ladder under real concurrency; tier behaviour under saturation is unproven."
+      - "No measured latency or caller-experience impact for a mid-call degradation."
+      - "The operator runbook for pinning or unpinning a tier ceiling does not exist yet."
+    detailsToGeneralize:
+      - "Tier budget numbers are showcase configuration values, not recommendations."
+      - "Provider names should be framed as candidates while ADR-0006 is open."
+    excludedMaterial:
+      - "Any suggestion that a customer ran this, or that degradation prevented a real outage."
+      - "Any assertion that the strategy fallback implementation or its tests are present in this repository."
+
+  - id: scaling-constraints
+    format: large-scale-lessons
+    reviewStatus: draft
+    workingTitle: "Constraints to model before compute in a realtime call platform"
+    audience: "Platform engineers sizing realtime, stateful workloads on Azure."
+    takeaway: "At the modeled hyperscale tiers, per-resource call throughput, webhook delivery, realtime-session quotas, and WebSocket ownership shape the topology before raw compute sizing."
+    sourceArtifacts:
+      - path: docs/architecture/aks-topology.md
+        note: "Deployment view, routing model, scaling matrix, and sizing heuristics."
+      - path: docs/architecture/README.md
+        note: "Reader-intent index into the architecture views."
+    canonicalAdrs:
+      - id: ADR-0010
+        path: docs/adr/0010-active-active-multi-cluster-topology.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Primary ADR."
+      - id: ADR-0011
+        path: docs/adr/0011-pod-ownership-and-lease-model.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+      - id: ADR-0004
+        path: docs/adr/0004-call-state-in-redis-by-callconnectionid.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+      - id: ADR-0012
+        path: docs/adr/0012-aks-node-pool-vm-sku-and-pod-density.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+      - id: ADR-0015
+        path: docs/adr/0015-aks-istio-ingress-gateway-node-pool.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+    operations:
+      - path: docs/runbooks/README.md
+        note: "Runbook index; the region-drain procedure is still outstanding."
+      - path: docs/monitoring/dashboards.md
+        note: "The dashboard model an operator would watch while scaling."
+    evidence:
+      - class: modeled
+        claim: "Replica counts, per-pod ceilings, and the showcase / pilot / hyperscale matrix."
+        path: docs/architecture/aks-topology.md
+      - class: assumed
+        claim: "Only a small fraction of calls degrade below the realtime tier in steady state."
+        path: docs/architecture/aks-topology.md
+      - class: gap
+        claim: "No repository implementation or deployment evidence exists for any tier, including showcase; every scale figure is a design target."
+      - class: gap
+        claim: "Multi-cluster failover has never been exercised."
+      - class: gap
+        claim: "No benchmark exists for the per-pod WebSocket ceiling."
+      - class: gap
+        claim: "No implementation or test artifact in this repository currently demonstrates the call-session ownership and lease model."
+      - class: gap
+        claim: "No evidence record supports the per-call bandwidth, memory, CPU, GC, latency, or inference figures asserted by the sizing sources."
+    evidenceGaps:
+      - "No repository implementation or deployment evidence exists for any tier, including showcase; every scale figure is a design target."
+      - "Multi-cluster failover has never been exercised."
+      - "No benchmark exists for the per-pod WebSocket ceiling."
+      - "No implementation or test artifact in this repository currently demonstrates the call-session ownership and lease model."
+      - "No evidence record supports the per-call bandwidth, memory, CPU, GC, latency, or inference figures asserted by the sizing sources."
+    detailsToGeneralize:
+      - "SKU names, replica counts, and region choices are illustrative of the method, not a prescription."
+      - "Redis key namespaces are internal conventions and should be described generically."
+    excludedMaterial:
+      - "Any concurrency figure presented as achieved throughput."
+      - "Per-call CPU, memory, bandwidth, GC, latency, or inference figures presented as measured or validated results."
+      - "Subscription, tenant, or resource-group identifiers."
+
+  - id: pstn-to-agent-reference
+    format: reference-architecture
+    reviewStatus: draft
+    workingTitle: "PSTN to AI agent: a reference shape on ACS Call Automation"
+    audience: "Solution architects integrating Teams Phone, Azure Communication Services, and an AI agent with a contact-center platform."
+    takeaway: "Keep telephony control in ACS Call Automation and keep the application a stateless HTTPS and WebSocket workload; the interesting design work is ingress, event delivery, and the transfer boundary."
+    sourceArtifacts:
+      - path: docs/architecture/call-flow.md
+        note: "Canonical end-to-end narrative flow."
+      - path: docs/architecture/sequence-diagrams.md
+        note: "Mermaid sequence for the happy-path escalation."
+      - path: docs/architecture/transfer-patterns.md
+        note: "Blind versus consultative transfer and header transport rules."
+      - path: docs/monitoring/correlation-model.md
+        note: "How a single call is reconstructed across four boundaries."
+    canonicalAdrs:
+      - id: ADR-0001
+        path: docs/adr/0001-pstn-ingress-via-tpe.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Primary ADR."
+      - id: ADR-0002
+        path: docs/adr/0002-acs-call-automation-as-control-plane.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+      - id: ADR-0003
+        path: docs/adr/0003-incomingcall-delivery-via-event-grid.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+      - id: ADR-0005
+        path: docs/adr/0005-escalation-blind-vs-consultative-transfer.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+    operations:
+      - path: docs/runbooks/event-grid-incomingcall-subscription.md
+        note: "The validation handshake and failure modes for the IncomingCall webhook."
+      - path: docs/runbooks/teams-configuration/tpe-onboarding-guide.md
+        note: "Greenfield provisioning path for Teams Phone Extensibility."
+      - path: scripts/teams-extensibility
+        note: "Provisioning automation referenced by the onboarding guides."
+    evidence:
+      - class: assumed
+        claim: "Timeout, retry, and transfer-window defaults adopted from platform documentation."
+        path: docs/runbooks/timing-and-retries.md
+      - class: gap
+        claim: "No implementation or test artifact in this repository currently demonstrates caller-authentication state transitions in the answer path."
+      - class: gap
+        claim: "No measured end-to-end latency budget for answer, first response, or transfer."
+      - class: gap
+        claim: "Monitoring queries and dashboards have not been exercised against real traffic."
+    evidenceGaps:
+      - "No implementation or test artifact in this repository currently demonstrates caller-authentication state transitions in the answer path."
+      - "No measured end-to-end latency budget for answer, first response, or transfer."
+      - "Monitoring queries and dashboards have not been exercised against real traffic."
+    detailsToGeneralize:
+      - "Resource account identifiers, DIDs, and phone numbers."
+      - "Endpoint hostnames and route paths."
+      - "Downstream contact-center platform specifics should be described as one option among several."
+    excludedMaterial:
+      - "Provisioning output, tenant identifiers, or anything from a live environment."
+      - "Claims that provisioning is idempotent or validated end to end."
+
+  - id: folded-call-state
     format: field-note
     reviewStatus: not_proposed
-    workingTitle: "REPLACE_ME: working title"
-    audience: "REPLACE_ME: intended readers"
-    takeaway: "REPLACE_ME: proposed takeaway"
-    sourceArtifacts: []
-    # A current-record requires path and statusAsReviewed. A reconstructed
-    # decision requires a provenance note and must not have either field.
-    canonicalAdrs: []
-    operations: []
-    evidence: []
-    evidenceGaps: []
-    detailsToGeneralize: []
-    excludedMaterial: []
+    workingTitle: "Per-call state that survives swapping the thing driving the call"
+    audience: "Engineers building stateful conversational systems where the conversation engine can change mid-session."
+    takeaway: "The accepted design models per-call state as event-folded immutable slices through a serialized fold path so a replacement strategy can read the same folded snapshot instead of rebuilding context."
+    sourceArtifacts:
+      - path: docs/adr/0014-call-state-event-folded-provider-slices.md
+        note: "Call-session state, event folding, and provider slices."
+      - path: docs/strategies/README.md
+        note: "How the folded snapshot is handed across workflow step and tier changes."
+    canonicalAdrs:
+      - id: ADR-0014
+        path: docs/adr/0014-call-state-event-folded-provider-slices.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Primary ADR."
+      - id: ADR-0004
+        path: docs/adr/0004-call-state-in-redis-by-callconnectionid.md
+        statusAsReviewed: accepted
+        kind: current-record
+        note: "Supporting ADR."
+    operations:
+      - path: docs/runbooks/README.md
+        note: "Where a recovery procedure for a stuck call would live."
+    evidence:
+      - class: gap
+        claim: "No implementation or test artifact in this repository currently demonstrates state preservation or workflow navigation over the folded snapshot."
+      - class: gap
+        claim: "No repository implementation or tests demonstrate the in-memory, Redis, or Cosmos snapshot stores, including their concurrency behavior."
+      - class: gap
+        claim: "No measurement of fold or snapshot cost on the realtime hot path."
+    evidenceGaps:
+      - "No implementation or test artifact in this repository currently demonstrates state preservation or workflow navigation over the folded snapshot."
+      - "No repository implementation or tests demonstrate the in-memory, Redis, or Cosmos snapshot stores, including their concurrency behavior."
+      - "No measurement of fold or snapshot cost on the realtime hot path."
+    detailsToGeneralize:
+      - "Type and slice names are implementation detail; describe the pattern, not the class names."
+    excludedMaterial:
+      - "Any claim that this pattern was validated in production."
+      - "Any statement that ADR-0014 was implemented in this repository or validated by tests."
+
 globalExclusions:
-  - "Credentials, tokens, connection strings, and tenant or subscription identifiers."
-  - "Customer names, private URLs, internal hostnames, and unsupported claims."
-extensions: {}
+  - "Secrets, keys, certificates, and connection strings."
+  - "Customer names, engagement context, or any claim of customer outcomes."
+  - "Environment-specific identifiers or outputs from a live deployment."
+  - "Anything not already present in this repository as reviewed documentation."
+
+extensions:
+  reviewNotes: "An author pulls this brief while writing in the blog repository. Every claim must be traced back to a linked source document before it is written. Nothing in this repository publishes, and a human review is required before any candidate is used."
+  openQuestions:
+    - "Which realtime provider ends up chosen (ADR-0006) — no candidate may assume an outcome."
+    - "Whether sandboxed tool execution (ADR-0013, Proposed) ships; it is not written about until it does."

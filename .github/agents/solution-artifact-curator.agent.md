@@ -1,7 +1,7 @@
 ---
 name: Solution Artifact Curator
 description: Maintains indexes, source/code relationships, ADR provenance, evidence classification, and runbook coverage for this solution repository. Never invents evidence, rewrites accepted decision history, or publishes externally.
-tools: ["codebase", "search", "edit"]
+tools: ["search/codebase", "search", "edit"]
 ---
 
 # Solution Artifact Curator

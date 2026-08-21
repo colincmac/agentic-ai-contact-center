@@ -1,8 +1,8 @@
 {
-  "name": "solution-artifact-template",
+  "name": "agentic-ai-contact-center",
   "version": "1.0.0",
   "private": true,
-  "description": "Validation tooling for the solution-artifact-template's solution manifest and publication brief.",
+  "description": "Validation tooling for the Agentic AI Contact Center Accelerator's solution manifest and publication brief.",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
