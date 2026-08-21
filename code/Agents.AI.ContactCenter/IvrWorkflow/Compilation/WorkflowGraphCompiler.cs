@@ -1,44 +1,23 @@
 using Agents.AI.ContactCenter.Exceptions;
 using Agents.AI.ContactCenter.IvrWorkflow.Blueprint;
 using Agents.AI.ContactCenter.IvrWorkflow.Predicates;
-using Agents.AI.ContactCenter.IvrWorkflow.Tools;
-using Microsoft.Extensions.AI;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 
 /// <summary>
 /// Translates a <see cref="WorkflowBlueprint"/> into a runtime <see cref="CompiledCallWorkflow"/>.
-/// Resolves every <see cref="PredicateRef"/> against the built-in factories (and, for
-/// <see cref="PredicateKind.Named"/>, the supplied <see cref="INamedEdgePredicateProvider"/>),
-/// resolves every blueprint tool name against the supplied <see cref="IIvrToolRegistry"/>,
+/// Validates every <see cref="PredicateRef"/> and retains named predicate references for
+/// call-scoped binding, collects every authored tool name,
 /// validates graph structure (no duplicate ids, every transition target exists, an initial
 /// stage exists), and produces immutable <see cref="CompiledStage"/> nodes with pre-built
-/// edge predicates and resolved tool bindings.
+/// safe built-in edge predicates and symbolic runtime bindings.
 /// </summary>
 /// <remarks>
-/// Tool resolution fails fast: any reference in
-/// <see cref="WorkflowBlueprint.CommonToolNames"/>, <see cref="StageBlueprint.ToolNames"/>,
-/// or <see cref="StageRealtimePrompt.ToolNames"/> that is not present in the registry is
-/// aggregated into the same <see cref="WorkflowCompilationException"/> as structural and
-/// predicate errors, so authors see every problem in a single failure. When the compiler
-/// is constructed without an <see cref="IIvrToolRegistry"/> the per-stage tool list is left
-/// empty and validation is skipped — this mode is intended for tests and greenfield
-/// scenarios that do not surface tools.
+/// The compiler is process-safe and never resolves services. Tool and named-predicate
+/// availability is validated separately, then concrete bindings are materialized per call.
 /// </remarks>
 public sealed class WorkflowGraphCompiler
 {
-    private readonly INamedEdgePredicateProvider? _namedPredicates;
-    private readonly IIvrToolRegistry? _toolRegistry;
-
-    /// <summary>Construct a compiler. Pass <paramref name="namedPredicates"/> to enable <see cref="PredicateKind.Named"/> references and <paramref name="toolRegistry"/> to enable tool-name validation.</summary>
-    public WorkflowGraphCompiler(
-        INamedEdgePredicateProvider? namedPredicates = null,
-        IIvrToolRegistry? toolRegistry = null)
-    {
-        _namedPredicates = namedPredicates;
-        _toolRegistry = toolRegistry;
-    }
-
     /// <summary>Compile <paramref name="blueprint"/>. Throws <see cref="WorkflowCompilationException"/> on any validation error.</summary>
     public CompiledCallWorkflow Compile(WorkflowBlueprint blueprint)
     {
@@ -68,7 +47,7 @@ public sealed class WorkflowGraphCompiler
                     continue;
                 }
 
-                EdgePredicate predicate;
+                EdgePredicate? predicate;
                 try
                 {
                     predicate = BuildPredicateForTransition(transition);
@@ -82,9 +61,9 @@ public sealed class WorkflowGraphCompiler
                 edges.Add(new CompiledStageEdge(transition, predicate));
             }
 
-            var stageTools = ResolveStageTools(blueprint, stage, errors);
+            var toolNames = CollectStageToolNames(blueprint, stage);
 
-            compiledStages[stage.Id] = new CompiledStage(stage, edges, stageTools, blueprint.BasePrompt);
+            compiledStages[stage.Id] = new CompiledStage(stage, edges, toolNames, basePrompt: blueprint.BasePrompt);
         }
 
         if (errors.Count > 0)
@@ -98,22 +77,12 @@ public sealed class WorkflowGraphCompiler
     }
 
     /// <summary>
-    /// Resolve every tool name referenced by <paramref name="blueprint"/>.<see cref="WorkflowBlueprint.CommonToolNames"/>,
-    /// <paramref name="stage"/>.<see cref="StageBlueprint.ToolNames"/>, and the stage's
-    /// <see cref="StageRealtimePrompt.ToolNames"/>, deduped in author order (last-wins on
-    /// collision via dictionary insertion semantics). Missing names append to
-    /// <paramref name="errors"/> so a single compilation surfaces every issue.
+    /// Collect every tool name referenced by the workflow and stage, deduped in author order.
     /// </summary>
-    private IReadOnlyList<AITool> ResolveStageTools(
+    private static IReadOnlyList<string> CollectStageToolNames(
         WorkflowBlueprint blueprint,
-        StageBlueprint stage,
-        List<string> errors)
+        StageBlueprint stage)
     {
-        if (_toolRegistry is null)
-        {
-            return [];
-        }
-
         var ordered = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         Collect(blueprint.CommonToolNames, ordered, seen);
@@ -123,26 +92,7 @@ public sealed class WorkflowGraphCompiler
             Collect(realtime.ToolNames, ordered, seen);
         }
 
-        if (ordered.Count == 0)
-        {
-            return [];
-        }
-
-        var resolved = new List<AITool>(ordered.Count);
-        foreach (var name in ordered)
-        {
-            if (_toolRegistry.TryGetBinding(name, out var binding) && binding is { } tool)
-            {
-                resolved.Add(tool);
-            }
-            else
-            {
-                errors.Add(
-                    $"Stage '{stage.Id}' references unknown tool '{name}'. " +
-                    "Register it via services.AddIvrTool();");
-            }
-        }
-        return resolved;
+        return ordered;
     }
 
     private static void Collect(IReadOnlyList<string> names, List<string> ordered, HashSet<string> seen)
@@ -193,7 +143,9 @@ public sealed class WorkflowGraphCompiler
         }
     }
 
-    private EdgePredicate BuildPredicateForTransition(TransitionBlueprint transition)
+    internal static EdgePredicate? BuildPredicateForTransition(
+        TransitionBlueprint transition,
+        INamedEdgePredicateProvider? namedPredicates = null)
     {
         if (transition.Requires.Count == 0)
         {
@@ -203,12 +155,19 @@ public sealed class WorkflowGraphCompiler
         var predicates = new EdgePredicate[transition.Requires.Count];
         for (var i = 0; i < transition.Requires.Count; i++)
         {
-            predicates[i] = BuildPredicate(transition.Requires[i]);
+            var predicate = BuildPredicate(transition.Requires[i], namedPredicates);
+            if (predicate is null)
+            {
+                return null;
+            }
+            predicates[i] = predicate;
         }
         return predicates.Length == 1 ? predicates[0] : BuiltInPredicates.All(predicates);
     }
 
-    private EdgePredicate BuildPredicate(PredicateRef reference)
+    private static EdgePredicate? BuildPredicate(
+        PredicateRef reference,
+        INamedEdgePredicateProvider? namedPredicates)
     {
         ArgumentNullException.ThrowIfNull(reference);
         return reference.Kind switch
@@ -226,11 +185,10 @@ public sealed class WorkflowGraphCompiler
                 : throw new ArgumentException("StateEquals predicate requires Key to be set."),
 
             PredicateKind.Named when !string.IsNullOrEmpty(reference.NamedId) =>
-                _namedPredicates?.TryResolve(reference.NamedId)
-                    ?? throw new InvalidOperationException(
-                        _namedPredicates is null
-                            ? $"Named predicate '{reference.NamedId}' requested but no INamedEdgePredicateProvider was supplied to the compiler."
-                            : $"Named predicate '{reference.NamedId}' is not registered."),
+                namedPredicates is null
+                    ? null
+                    : namedPredicates.TryResolve(reference.NamedId)
+                        ?? throw new InvalidOperationException($"Named predicate '{reference.NamedId}' is not registered."),
 
             PredicateKind.Named => throw new ArgumentException("Named predicate requires NamedId to be set."),
 

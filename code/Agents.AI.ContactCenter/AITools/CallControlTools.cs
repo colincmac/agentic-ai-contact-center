@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Agents.AI.ContactCenter.Calling;
+using Agents.AI.ContactCenter.Configuration;
 using Agents.AI.Extensions.AITools;
 using Agents.AI.Monitoring.Correlation;
 using Agents.AI.Monitoring.Dynamics;
@@ -17,20 +18,23 @@ namespace Agents.AI.ContactCenter.AITools;
 /// Register the tool surface with
 /// <see cref="DependencyInjection.CallSessionContainerExtensions.AddCallControlTools(DependencyInjection.CallSessionContainerBuilder, string)"/>.
 /// </summary>
-public sealed class CallControlTools: IAIToolCollection
+public sealed class CallControlTools : IAIToolCollection
 {
     private readonly ILogger<CallControlTools> _logger;
     private readonly ICallSessionAccessor _callSessionAccessor;
     private readonly ICallCorrelationAccessor? _correlation;
     private readonly ICallCorrelationStore? _correlationStore;
+    private readonly TransferEscalationTarget? _escalationTarget;
 
     public CallControlTools(
         ICallSessionAccessor callSessionAccessor,
+        TransferEscalationTarget? escalationTarget = null,
         ICallCorrelationAccessor? correlation = null,
         ICallCorrelationStore? correlationStore = null,
         ILogger<CallControlTools>? logger = null)
     {
         _callSessionAccessor = callSessionAccessor;
+        _escalationTarget = escalationTarget;
         _correlation = correlation;
         _correlationStore = correlationStore;
         _logger = logger ?? NullLogger<CallControlTools>.Instance;
@@ -41,6 +45,36 @@ public sealed class CallControlTools: IAIToolCollection
 
     /// <summary>Stable tool name used in YAML workflows for the transfer verb.</summary>
     public const string TransferToolName = "transfer_call";
+
+    /// <summary>Stable tool name for transferring to the configured default escalation target.</summary>
+    public const string TransferToAgentToolName = "transfer_to_agent";
+
+    [Description("Transfer the live call to the configured human-agent escalation target.")]
+    public Task<CallControlResult> TransferToAgentAsync(
+        [Description("Optional reason for escalating the caller to a human agent.")]
+        string? reason = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_escalationTarget is null)
+        {
+            return Task.FromResult(new CallControlResult(
+                false,
+                "No default human-agent escalation target is configured."));
+        }
+
+        var transferKind = _escalationTarget.Kind switch
+        {
+            TransferKind.BlindToPhoneNumber => "phone",
+            TransferKind.BlindToTeamsUser => "teams",
+            TransferKind.Consultative => "consultative",
+            _ => throw new ArgumentOutOfRangeException(nameof(_escalationTarget.Kind))
+        };
+        return TransferCallAsync(
+            _escalationTarget.TargetIdentifier,
+            transferKind,
+            reason,
+            cancellationToken);
+    }
 
     [Description(
         "End the current phone call. Use this only when the conversation is complete, " +
@@ -179,6 +213,7 @@ public sealed class CallControlTools: IAIToolCollection
     {
         yield return AIFunctionFactory.Create(HangUpCallAsync, name: HangUpToolName);
         yield return AIFunctionFactory.Create(TransferCallAsync, name: TransferToolName);
+        yield return AIFunctionFactory.Create(TransferToAgentAsync, name: TransferToAgentToolName);
     }
 }
 

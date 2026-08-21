@@ -1,8 +1,6 @@
 using Agents.AI.ContactCenter.Authentication;
+using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow.Compilation;
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Execution;
 
@@ -37,33 +35,4 @@ public sealed class CallWorkflowSession
 
     /// <summary>Workflow being walked for this call.</summary>
     public CompiledCallWorkflow Workflow { get; }
-}
-
-/// <summary>Factory abstraction so the call-session container can build per-call sessions through DI.</summary>
-public interface ICallWorkflowSessionFactory
-{
-    /// <summary>Create a session for <paramref name="workflow"/>. <paramref name="restoreFrom"/> reuses prior state across tier swaps.</summary>
-    CallWorkflowSession Create(
-        CompiledCallWorkflow workflow,
-        IServiceProvider services);
-}
-
-/// <summary>Default <see cref="ICallWorkflowSessionFactory"/>. Singleton; sessions are per-call.</summary>
-public sealed class CallWorkflowSessionFactory : ICallWorkflowSessionFactory
-{
-    private readonly ILoggerFactory? _loggerFactory;
-
-    public CallWorkflowSessionFactory(ILoggerFactory? loggerFactory = null)
-    {
-        _loggerFactory = loggerFactory;
-    }
-
-    public CallWorkflowSession Create(
-        CompiledCallWorkflow workflow,
-        IServiceProvider services)
-    {
-        var callerElevationDispatcher = services.GetRequiredService<ICallerElevationDispatcher>();
-
-        return new CallWorkflowSession(workflow, services, callerElevationDispatcher);
-    }
 }

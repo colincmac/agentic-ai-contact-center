@@ -4,20 +4,17 @@ using Agents.AI.ContactCenter.IvrWorkflow.Predicates;
 namespace Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 
 /// <summary>
-/// Runtime representation of one outgoing edge from a <see cref="CompiledStage"/>. Holds
-/// the pre-resolved <see cref="EdgePredicate"/> (built by <see cref="WorkflowGraphCompiler"/>
-/// from the blueprint's <see cref="PredicateRef"/> entries) plus the original blueprint
-/// for diagnostics and prompt rendering.
+/// Compiled representation of one outgoing edge from a <see cref="CompiledStage"/>.
+/// Process-shared metadata retains authored predicate references; a call-scoped runtime copy
+/// carries the resolved <see cref="EdgePredicate"/>.
 /// </summary>
 public sealed class CompiledStageEdge
 {
     public CompiledStageEdge(
         TransitionBlueprint blueprint,
-        EdgePredicate predicate)
+        EdgePredicate? predicate = null)
     {
         ArgumentNullException.ThrowIfNull(blueprint);
-        ArgumentNullException.ThrowIfNull(predicate);
-
         Blueprint = blueprint;
         Predicate = predicate;
     }
@@ -31,6 +28,9 @@ public sealed class CompiledStageEdge
     /// <summary>Optional label (defaults to <see cref="TargetStageId"/> when not set).</summary>
     public string Label => Blueprint.Label ?? Blueprint.TargetStageId;
 
-    /// <summary>Composite predicate (AND of every entry in <see cref="TransitionBlueprint.Requires"/>).</summary>
-    public EdgePredicate Predicate { get; }
+    /// <summary>Authored predicate references retained for runtime binding and diagnostics.</summary>
+    public IReadOnlyList<PredicateRef> PredicateReferences => Blueprint.Requires;
+
+    /// <summary>Bound composite predicate, or <see langword="null"/> on process-shared metadata.</summary>
+    public EdgePredicate? Predicate { get; }
 }

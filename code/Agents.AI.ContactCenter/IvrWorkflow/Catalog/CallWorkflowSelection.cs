@@ -28,7 +28,7 @@ public sealed class CallWorkflowSelection
     /// the single registered workflow when the catalog is unambiguous.
     /// </summary>
     /// <param name="catalog">The process-wide compiled-workflow catalog.</param>
-    /// <param name="fallbackId">Optional default workflow id bound at strategy registration.</param>
+    /// <param name="fallbackId">Optional default workflow id from <see cref="CallWorkflowOptions"/>.</param>
     /// <exception cref="InvalidOperationException">
     /// No workflow id was supplied and the catalog has zero or more than one workflow.
     /// </exception>
@@ -52,6 +52,6 @@ public sealed class CallWorkflowSelection
             workflows.Count == 0
                 ? "No call workflows are registered. Register one via services.AddCallWorkflow(...)."
                 : $"Multiple call workflows are registered ({string.Join(", ", workflows.Select(w => w.Id))}); " +
-                  "specify CallSessionRequest.WorkflowId (or a default workflow id when registering the strategy) to select one.");
+                  "specify CallSessionRequest.WorkflowId or configure CallWorkflowOptions.DefaultWorkflowId to select one.");
     }
 }

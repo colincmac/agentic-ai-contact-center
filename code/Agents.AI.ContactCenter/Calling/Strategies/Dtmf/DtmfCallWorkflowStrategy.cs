@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.Channels;
 using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.Configuration;
+using Agents.AI.ContactCenter.IvrWorkflow;
 using Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 using Agents.AI.ContactCenter.IvrWorkflow.Execution;
 using Agents.AI.ContactCenter.Media.Audio;
@@ -18,8 +19,7 @@ namespace Agents.AI.ContactCenter.Calling.Strategies.Dtmf;
 /// </summary>
 /// <remarks>
 /// Designed to run as the bottom tier of a <see cref="Composite.CompositeFallbackStrategy"/>;
-/// preserves the per-call <see cref="IvrWorkflowState"/> across swaps because it's
-/// supplied by the <see cref="CallWorkflowSession"/> created with <c>restoreFrom</c>.
+/// preserves folded per-call workflow state across swaps through the shared call scope.
 /// </remarks>
 public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
 {

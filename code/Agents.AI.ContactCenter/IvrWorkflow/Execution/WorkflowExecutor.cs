@@ -143,17 +143,17 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         switch (evaluation)
         {
             case TransitionEvaluation.Allowed allowed:
-            {
-                ApplyTransition(allowed.Edge);
-                var newStage = await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
-                if (newStage.Terminal)
                 {
-                    await _events.WriteAsync(
-                        new StrategyEvent.WorkflowCompleted(TerminalStatus(newStage), DateTimeOffset.UtcNow),
-                        cancellationToken).ConfigureAwait(false);
+                    ApplyTransition(allowed.Edge);
+                    var newStage = await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
+                    if (newStage.Terminal)
+                    {
+                        await _events.WriteAsync(
+                            new StrategyEvent.WorkflowCompleted(TerminalStatus(newStage), DateTimeOffset.UtcNow),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    return new AdvanceOutcome.Advanced(newStage);
                 }
-                return new AdvanceOutcome.Advanced(newStage);
-            }
             case TransitionEvaluation.Blocked blocked:
                 return new AdvanceOutcome.Denied(blocked.Reason);
 
@@ -214,7 +214,9 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
             "Navigator has no current stage. Call EnterInitialStage() first.");
 
         var context = BuildEdgeContext();
-        var result = await edge.Predicate(context, cancellationToken).ConfigureAwait(false);
+        var predicate = edge.Predicate ?? throw new InvalidOperationException(
+            $"Transition '{current.Id}' → '{edge.TargetStageId}' has not been bound to the call scope.");
+        var result = await predicate(context, cancellationToken).ConfigureAwait(false);
         if (result.Passed)
         {
             return new TransitionEvaluation.Allowed(edge);

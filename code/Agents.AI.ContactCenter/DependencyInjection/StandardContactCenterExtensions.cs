@@ -1,5 +1,7 @@
+using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.Configuration;
+using Agents.AI.ContactCenter.IvrWorkflow.Catalog;
 using Agents.AI.ContactCenter.IvrWorkflow.Loading;
 using Agents.AI.ContactCenter.Media.Audio;
 using Agents.AI.Extensions.AITools;
@@ -50,6 +52,14 @@ public sealed class StandardContactCenterBuilder
     public StandardContactCenterBuilder AddWorkflowsFromDirectory(string directoryPath)
     {
         Advanced.Services.AddCallWorkflowsFromDirectory(directoryPath);
+        return this;
+    }
+
+    /// <summary>Configure the workflow used when a call request does not provide a workflow id.</summary>
+    public StandardContactCenterBuilder ConfigureDefaultWorkflow(string workflowId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
+        Advanced.Services.Configure<CallWorkflowOptions>(options => options.DefaultWorkflowId = workflowId);
         return this;
     }
 

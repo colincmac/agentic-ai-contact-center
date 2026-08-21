@@ -7,6 +7,7 @@ using Agents.AI.Extensions.AITools;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Agents.AI.ContactCenter.DependencyInjection;
 
@@ -16,23 +17,15 @@ namespace Agents.AI.ContactCenter.DependencyInjection;
 /// register one or more <see cref="WorkflowBlueprint"/> instances, build the catalog.
 /// </summary>
 /// <remarks>
-/// Workflows are <em>compiled at host startup</em>. Authors register
-/// blueprints (programmatically or via a future YAML loader); the catalog is materialized
-/// once on first resolution. Tools resolve through the keyed
-/// <see cref="IIvrToolRegistry"/> (registered with
-/// <see cref="IvrToolServiceCollectionExtensions.AddIvrTool(IServiceCollection, string, string, Func{IServiceProvider, AIFunction}, ServiceLifetime)"/>);
-/// named predicates resolve through <see cref="INamedEdgePredicateProvider"/>.
+/// Workflows are compiled into process-shared metadata and validated at host startup.
+/// Concrete tools and named predicates resolve from the active call scope.
 /// </remarks>
 public static class CallWorkflowServiceCollectionExtensions
 {
     /// <summary>
     /// Register the workflow compiler and a <see cref="ICallWorkflowCatalog"/> that
     /// materializes from every <see cref="WorkflowBlueprint"/> resolvable from the root
-    /// scope. Idempotent. This overload does not wire an
-    /// <see cref="IIvrToolRegistry"/>, so per-stage tool surfaces will be empty —
-    /// intended for tests and greenfield scenarios that do not surface tools to the agent.
-    /// Production hosts should call the
-    /// <see cref="AddCallWorkflowFramework(IServiceCollection, string)"/> overload.
+    /// scope. Idempotent. Runtime tool and predicate binding remains scoped per call.
     /// </summary>
     public static IServiceCollection AddCallWorkflowFramework(this IServiceCollection services)
     {
@@ -40,8 +33,12 @@ public static class CallWorkflowServiceCollectionExtensions
 
         services.AddNamedEdgePredicateProvider();
         services.AddIvrToolRegistry();
+        services.AddOptions<CallWorkflowOptions>();
 
         services.TryAddSingleton<WorkflowGraphCompiler>();
+        services.TryAddScoped<WorkflowRuntimeBinder>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHostedService, WorkflowStartupValidationService>());
 
         services.TryAddSingleton<ICallWorkflowCatalog>(sp =>
         {
@@ -91,7 +88,7 @@ public static class CallWorkflowServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddNamedEdgePredicateProvider(this IServiceCollection services)
     {
-        services.TryAddSingleton<INamedEdgePredicateProvider, NamedEdgePredicateProvider>();
+        services.TryAddScoped<INamedEdgePredicateProvider, NamedEdgePredicateProvider>();
         return services;
     }
 
@@ -103,7 +100,7 @@ public static class CallWorkflowServiceCollectionExtensions
         ServiceLifetime lifetime = ServiceLifetime.Singleton)
     {
         ArgumentNullException.ThrowIfNull(services);
-        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(factory);
 
         services.AddNamedEdgePredicateProvider();
@@ -140,12 +137,9 @@ public static class CallWorkflowServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Register an <see cref="AIFunction"/> under <paramref name="name"/> for the
-    /// realtime agent identified by <paramref name="agentKey"/>.
+    /// Register an <see cref="AITool"/> for call-scoped workflow binding.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="agentKey">DI service key shared with the realtime agent registration.</param>
-    /// <param name="name">Tool lookup name referenced from workflow blueprints.</param>
     /// <param name="factory">Factory invoked per call to materialize the function from the call scope.</param>
     /// <param name="lifetime">
     /// Descriptive hint:
@@ -166,14 +160,13 @@ public static class CallWorkflowServiceCollectionExtensions
 
         services.AddIvrToolRegistry();
 
-        services.TryAddEnumerable(new ServiceDescriptor(typeof(AITool), (sp) => factory(sp), lifetime));
+        services.Add(new ServiceDescriptor(typeof(AITool), sp => factory(sp), lifetime));
 
         return services;
     }
 
     /// <summary>
-    /// Convenience overload that registers an already-built <paramref name="function"/>
-    /// as a singleton binding under <paramref name="name"/>.
+    /// Convenience overload that registers an already-built tool.
     /// </summary>
     public static IServiceCollection AddIvrTool(
         this IServiceCollection services,
@@ -185,11 +178,8 @@ public static class CallWorkflowServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Register the keyed <see cref="IIvrToolRegistry"/> for <paramref name="agentKey"/>.
-    /// Invoked automatically by
-    /// <see cref="AddIvrTool(IServiceCollection, string, string, Func{IServiceProvider, AIFunction}, ServiceLifetime)"/>;
-    /// callers may invoke it directly to ensure an (initially empty) registry is resolvable for
-    /// <paramref name="agentKey"/>.
+    /// Register the call-scoped <see cref="IIvrToolRegistry"/>. Invoked automatically by
+    /// <see cref="AddIvrTool(IServiceCollection, Func{IServiceProvider, AITool}, ServiceLifetime)"/>.
     /// </summary>
     public static IServiceCollection AddIvrToolRegistry(this IServiceCollection services)
     {

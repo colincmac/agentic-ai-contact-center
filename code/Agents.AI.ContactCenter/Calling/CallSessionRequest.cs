@@ -13,3 +13,9 @@ public sealed record CallSessionRequest
     /// <summary>Override workflow. When null, the strategy's default / single registered workflow is used.</summary>
     public string? WorkflowId { get; init; }
 }
+
+/// <summary>Immutable routing inputs and the tier ultimately admitted for a published session.</summary>
+public sealed record CallSessionRouting(
+    string? WorkflowId,
+    AgentTier? PreferredTier,
+    AgentTier AdmittedTier);

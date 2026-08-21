@@ -1,6 +1,7 @@
 using System.Text;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow.Blueprint;
+using Agents.AI.ContactCenter.IvrWorkflow.Tools;
 using Microsoft.Extensions.AI;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Compilation;
@@ -15,16 +16,18 @@ public sealed class CompiledStage
     public CompiledStage(
         StageBlueprint blueprint,
         IReadOnlyList<CompiledStageEdge> outgoingEdges,
-        IReadOnlyList<AITool> stageTools,
+        IReadOnlyList<string> toolNames,
+        IReadOnlyList<AITool>? stageTools = null,
         string? basePrompt = null)
     {
         ArgumentNullException.ThrowIfNull(blueprint);
         ArgumentNullException.ThrowIfNull(outgoingEdges);
-        ArgumentNullException.ThrowIfNull(stageTools);
+        ArgumentNullException.ThrowIfNull(toolNames);
 
         Blueprint = blueprint;
         OutgoingEdges = outgoingEdges;
-        StageTools = stageTools;
+        ToolNames = toolNames;
+        StageTools = stageTools ?? [];
         BasePrompt = basePrompt ?? string.Empty;
     }
 
@@ -41,12 +44,12 @@ public sealed class CompiledStage
 
     public string BasePrompt { get; }
 
+    /// <summary>Authored tool names retained in process-shared compiled metadata.</summary>
+    public IReadOnlyList<string> ToolNames { get; }
+
     /// <summary>
-    /// Tool bindings resolved from the workflow's <see cref="WorkflowBlueprint.CommonToolNames"/>,
-    /// this stage's <see cref="StageBlueprint.ToolNames"/>, and the stage's
-    /// <see cref="StageRealtimePrompt.ToolNames"/>, deduped in author order (last-wins on
-    /// name collision). Populated by <see cref="WorkflowGraphCompiler"/> when a
-    /// <see cref="Tools.IIvrToolRegistry"/> is supplied; empty when no registry is provided.
+    /// Per-call tool bindings. Empty on process-shared compiled metadata and populated only
+    /// on the call-scoped runtime copy.
     /// </summary>
     public IReadOnlyList<AITool> StageTools { get; }
 

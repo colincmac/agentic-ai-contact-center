@@ -47,7 +47,10 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
         });
 
     private Task? _backgroundLoop;
+    private CancellationTokenSource? _runCts;
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private int _disconnectFired;
+    private int _disposed;
     private readonly CallingTelemetry _telemetry;
 
     public AcsWebSocketEdge(
@@ -99,17 +102,6 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
 
     public event Func<EdgeDisconnectedReason, ValueTask>? Disconnected;
 
-    public async Task<ICallEdge> ConnectAsync(string callId, WebSocket webSocket, CancellationToken cancellationToken = default)
-    {
-
-        _telemetry.EdgeConnected(EdgeId, Kind);
-
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, cancellationToken);
-        _backgroundLoop = Task.WhenAll(
-            ReceiveLoopAsync(linked.Token),
-            SendLoopAsync(linked.Token));
-        return this;
-    }
     public async Task HangUpAsync(bool hangUpForEveryone, CancellationToken cancellationToken = default)
     {
         if (_callAutomationClient is null)
@@ -122,20 +114,28 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
         await connection.HangUpAsync(hangUpForEveryone, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task ConnectAsync(CancellationToken cancellationToken = default)
+    public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_backgroundLoop is not null)
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return Task.CompletedTask;
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (_backgroundLoop is not null)
+            {
+                return;
+            }
+
+            _telemetry.EdgeConnected(EdgeId, Kind);
+
+            _runCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, cancellationToken);
+            _backgroundLoop = Task.WhenAll(
+                ReceiveLoopAsync(_runCts.Token),
+                SendLoopAsync(_runCts.Token));
         }
-
-        _telemetry.EdgeConnected(EdgeId, Kind);
-
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, cancellationToken);
-        _backgroundLoop = Task.WhenAll(
-            ReceiveLoopAsync(linked.Token),
-            SendLoopAsync(linked.Token));
-        return Task.CompletedTask;
+        finally
+        {
+            _lifecycleGate.Release();
+        }
     }
 
     public async Task TransferAsync(TransferRequest request, CancellationToken cancellationToken = default)
@@ -211,7 +211,34 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
 
     public async ValueTask DisposeAsync()
     {
-        await _cts.CancelAsync().ConfigureAwait(false);
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        Task? backgroundLoop;
+        await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await _cts.CancelAsync().ConfigureAwait(false);
+            if (_runCts is not null)
+            {
+                await _runCts.CancelAsync().ConfigureAwait(false);
+            }
+            _outbound.Writer.TryComplete();
+            backgroundLoop = _backgroundLoop;
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+
+        if (backgroundLoop is not null)
+        {
+            try { await backgroundLoop.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { _logger.LogDebug(ex, "ACS edge {EdgeId} background loop stopped during disposal", EdgeId); }
+        }
 
         if (_webSocket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
@@ -226,7 +253,9 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
         }
 
         _webSocket.Dispose();
+        _runCts?.Dispose();
         _cts.Dispose();
+        _lifecycleGate.Dispose();
 
         await RaiseDisconnectedAsync(EdgeDisconnectedReason.SessionEnded).ConfigureAwait(false);
     }
@@ -269,14 +298,28 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
                 var buffer = bufferPool.Rent(64 * 1024);
                 try
                 {
-                    var result = await _webSocket.ReceiveAsync(buffer, ct).ConfigureAwait(false);
+                    var message = new ArrayBufferWriter<byte>();
+                    WebSocketReceiveResult result;
+                    do
+                    {
+                        result = await _webSocket
+                            .ReceiveAsync(new ArraySegment<byte>(buffer), ct)
+                            .ConfigureAwait(false);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            reason = EdgeDisconnectedReason.CallerHangup;
+                            break;
+                        }
+                        message.Write(buffer.AsSpan(0, result.Count));
+                    }
+                    while (!result.EndOfMessage);
+
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        reason = EdgeDisconnectedReason.CallerHangup;
                         break;
                     }
 
-                    var payload = buffer.AsMemory(0, result.Count).ToArray();
+                    var payload = message.WrittenSpan.ToArray();
                     var parsed = TryParse(payload);
                     switch (parsed)
                     {
@@ -305,6 +348,11 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
         {
             _logger.LogWarning(ex, "ACS edge {EdgeId} receive loop terminated", EdgeId);
             reason = EdgeDisconnectedReason.NetworkError;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ACS edge {EdgeId} received an invalid streaming message", EdgeId);
+            reason = EdgeDisconnectedReason.Faulted;
         }
         finally
         {

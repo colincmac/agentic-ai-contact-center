@@ -4,8 +4,8 @@ namespace Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 
 /// <summary>
 /// Compiled, runtime-shaped representation of a <see cref="WorkflowBlueprint"/>. Carries
-/// pre-built <see cref="CompiledStage"/> instances (with pre-compiled
-/// <see cref="CompiledStageEdge.Predicate"/> closures) and a stage-id lookup. Consumed by
+/// pre-built <see cref="CompiledStage"/> instances with symbolic runtime-service references
+/// and a stage-id lookup. Consumed by
 /// the workflow navigator (Phase 4) and the per-tier strategies (Phase 5).
 /// </summary>
 /// <remarks>

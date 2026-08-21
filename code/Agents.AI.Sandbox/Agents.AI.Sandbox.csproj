@@ -13,5 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Agents.AI.Extensions\Agents.AI.Extensions.csproj" />
   </ItemGroup>
-
+    <ItemGroup>
+	    <InternalsVisibleTo Include="Agents.AI.Sandbox.Tests" />
+    </ItemGroup>
   </Project>

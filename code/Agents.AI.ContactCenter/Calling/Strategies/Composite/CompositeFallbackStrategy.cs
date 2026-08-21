@@ -1,9 +1,12 @@
 using System.Threading.Channels;
+using Agents.AI.ContactCenter.IvrWorkflow;
 using Agents.AI.ContactCenter.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Agents.AI.ContactCenter.IvrWorkflow.Execution;
+using Agents.AI.ContactCenter.Calling.Strategies;
+using Agents.AI.ContactCenter.Calling.Core;
 using Agents.AI.ContactCenter.State.Projections;
 using Microsoft.Shared.Diagnostics;
 
@@ -22,6 +25,7 @@ public sealed class CompositeFallbackStrategy : IConversationStrategy
 {
     private readonly IReadOnlyList<AgentTier> _orderedTiers;
     private readonly CallWorkflowSession _workflowSession;
+    private readonly CallTierAdmission _tierAdmission;
     private readonly ILogger _logger;
 
     private readonly Channel<OutboundDirective> _outbound = Channel.CreateBounded<OutboundDirective>(
@@ -50,10 +54,12 @@ public sealed class CompositeFallbackStrategy : IConversationStrategy
     public CompositeFallbackStrategy(
         IEnumerable<AgentTier> orderedTiers,
         CallWorkflowSession workflowSession,
+        CallTierAdmission tierAdmission,
         ILoggerFactory? loggerFactory = null)
     {
         _orderedTiers = Throw.IfNullOrEmpty(orderedTiers).ToList();
         _workflowSession = Throw.IfNull(workflowSession);
+        _tierAdmission = Throw.IfNull(tierAdmission);
 
         _logger = loggerFactory?.CreateLogger<CompositeFallbackStrategy>() ?? NullLogger<CompositeFallbackStrategy>.Instance;
     }
@@ -174,16 +180,9 @@ public sealed class CompositeFallbackStrategy : IConversationStrategy
         IConversationStrategy next;
         try
         {
-            // The composite is registered as the keyed IConversationStrategy for its top tier
-            // (_orderedTiers[0]) and shadows the leaf strategy at that key. A plain
-            // GetRequiredKeyedService(tier) for the top tier resolves *another* composite and
-            // recurses forever (StackOverflowException). Pick the last non-composite registration
-            // so we bind the real leaf strategy instead.
             next = _workflowSession.Services
-                .GetKeyedServices<IConversationStrategy>(tier)
-                .LastOrDefault(static s => s is not CompositeFallbackStrategy)
-                ?? throw new InvalidOperationException(
-                    $"No non-composite IConversationStrategy registered for tier {tier}.");
+                .GetRequiredKeyedService<ILeafConversationStrategyFactory>(tier)
+                .Create();
         }
         catch (Exception ex)
         {
@@ -368,8 +367,19 @@ public sealed class CompositeFallbackStrategy : IConversationStrategy
                 currentIndex = _tierIndex;
             }
 
+            var targetIndex = currentIndex + 1;
+            if (_tierAdmission.UsesResolver)
+            {
+                var admittedTier = await _tierAdmission
+                    .MoveToFallbackAsync(_cts.Token)
+                    .ConfigureAwait(false);
+                targetIndex = admittedTier is { } tier
+                    ? FindTierIndex(tier, currentIndex + 1)
+                    : _orderedTiers.Count;
+            }
+
             await ActivateAsync(
-                currentIndex + 1,
+                targetIndex,
                 fault.Message,
                 _cts.Token,
                 inner.Tier).ConfigureAwait(false);
@@ -387,5 +397,17 @@ public sealed class CompositeFallbackStrategy : IConversationStrategy
             }
             completion.TrySetResult();
         }
+    }
+
+    private int FindTierIndex(AgentTier tier, int startIndex)
+    {
+        for (var i = startIndex; i < _orderedTiers.Count; i++)
+        {
+            if (_orderedTiers[i] == tier)
+            {
+                return i;
+            }
+        }
+        return _orderedTiers.Count;
     }
 }

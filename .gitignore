@@ -1,5 +1,6 @@
 /output/
 /local/
+TestResults
 **/tpe-config.json
 **/tpe-config.*.json
 

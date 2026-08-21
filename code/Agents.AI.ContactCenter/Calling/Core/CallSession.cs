@@ -29,6 +29,7 @@ public sealed class CallSession : ICallSession
     private readonly ICallSessionRegistry _registry;
     private readonly ICallQualityReporter _quality;
     private readonly CallingTelemetry _telemetry;
+    private readonly CallTierAdmission _tierAdmission;
     private readonly ILogger<CallSession> _logger;
     private readonly CallStateProjector _stateProjector;
     private readonly CancellationTokenSource _cts = new();
@@ -80,6 +81,7 @@ public sealed class CallSession : ICallSession
 
     public CallSession(
         IncomingCallContext call,
+        CallSessionRouting routing,
         IConversationStrategy strategy,
         IServiceScope scope,
 
@@ -87,11 +89,13 @@ public sealed class CallSession : ICallSession
         ICallSessionRegistry registry,
         CallStateProjector sessionState,
         CallingTelemetry telemetry,
+        CallTierAdmission tierAdmission,
         IEnumerable<ICallObserver>? observers = null,
         ILogger<CallSession>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         CallInformation = Throw.IfNull(call);
+        Routing = Throw.IfNull(routing);
 
         _strategy = strategy;
         _observers = observers is not null ? new(observers) : [];
@@ -99,6 +103,7 @@ public sealed class CallSession : ICallSession
         _scope = scope;
         _registry = registry;
         _telemetry = telemetry;
+        _tierAdmission = tierAdmission;
         _logger = logger ?? NullLogger<CallSession>.Instance;
 
         _stateProjector = sessionState;
@@ -112,6 +117,8 @@ public sealed class CallSession : ICallSession
     public IncomingCallContext CallInformation { get; }
 
     public string CallId => CallInformation.CallId;
+
+    public CallSessionRouting Routing { get; }
 
     public CallSessionState State
     {
@@ -869,7 +876,10 @@ public sealed class CallSession : ICallSession
 
         Interlocked.Exchange(ref _qualityRegistration, null)?.Dispose();
 
-        if(_scope is IAsyncDisposable asyncScope)
+        try { await _tierAdmission.ReleaseAsync(CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Tier admission release failed for call {CallId}", CallId); }
+
+        if (_scope is IAsyncDisposable asyncScope)
         {
             try { await asyncScope.DisposeAsync().ConfigureAwait(false); } catch { /* shutdown */ }
         }
@@ -1127,7 +1137,7 @@ public sealed class CallSession : ICallSession
                         catch (Exception ex) { _logger.LogDebug(ex, "Whisper inject failed"); }
                         break;
 
-                    // Monitor / Whisper-without-support: drop.
+                        // Monitor / Whisper-without-support: drop.
                 }
             }
         }

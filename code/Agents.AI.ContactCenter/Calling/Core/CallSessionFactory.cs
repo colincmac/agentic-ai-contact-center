@@ -17,6 +17,7 @@ public sealed class CallSessionFactory : ICallSessionFactory
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICallSessionRegistry _registry;
     private readonly CallingTelemetry _telemetry;
+    private readonly IAgentTierResolver? _tierResolver;
     private readonly CancellationToken _applicationStopping;
     private readonly ConcurrentDictionary<string, Creation> _creations = new();
 
@@ -24,6 +25,7 @@ public sealed class CallSessionFactory : ICallSessionFactory
         IServiceScopeFactory scopeFactory,
         ICallSessionRegistry registry,
         CallingTelemetry telemetry,
+        IAgentTierResolver? tierResolver = null,
         IHostApplicationLifetime? applicationLifetime = null)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
@@ -31,6 +33,7 @@ public sealed class CallSessionFactory : ICallSessionFactory
         _scopeFactory = scopeFactory;
         _registry = registry;
         _telemetry = telemetry;
+        _tierResolver = tierResolver;
         _applicationStopping = applicationLifetime?.ApplicationStopping ?? CancellationToken.None;
     }
 
@@ -100,17 +103,22 @@ public sealed class CallSessionFactory : ICallSessionFactory
     {
         var callId = request.CallContext.CallId;
 
-        var tier = request.PreferredTier ?? AgentTier.DtmfOnly;
+        var tier = _tierResolver is null
+            ? request.PreferredTier ?? AgentTier.DtmfOnly
+            : await _tierResolver.ResolveAsync(request.PreferredTier, _applicationStopping).ConfigureAwait(false);
 
         using var createSpan = _telemetry.StartChildActivity(CallingActivitySource.CreateSessionActivityName, callId);
         createSpan?.SetTag(CallingActivitySource.CallTierTag, tier.ToString());
 
         var scope = _scopeFactory.CreateAsyncScope();
         CallSession? session = null;
+        CallTierAdmission? admission = null;
         try
         {
             scope.ServiceProvider.GetRequiredService<ICallContextAccessor>().Set(request.CallContext);
             scope.ServiceProvider.GetRequiredService<CallWorkflowSelection>().Set(request.WorkflowId);
+            admission = scope.ServiceProvider.GetRequiredService<CallTierAdmission>();
+            admission.Initialize(_tierResolver, tier);
 
             var strategy = scope.ServiceProvider.GetRequiredKeyedService<IConversationStrategy>(tier);
             _telemetry.CallCreated(request.CallContext.CallId, tier, strategy.Kind);
@@ -119,6 +127,7 @@ public sealed class CallSessionFactory : ICallSessionFactory
             session = ActivatorUtilities.CreateInstance<CallSession>(
                 scope.ServiceProvider,
                 request.CallContext,
+                new CallSessionRouting(request.WorkflowId, request.PreferredTier, tier),
                 strategy,
                 scope);
 
@@ -148,6 +157,10 @@ public sealed class CallSessionFactory : ICallSessionFactory
             }
             else
             {
+                if (admission is not null)
+                {
+                    try { await admission.ReleaseAsync(CancellationToken.None).ConfigureAwait(false); } catch { /* preserve creation failure */ }
+                }
                 await scope.DisposeAsync().ConfigureAwait(false);
             }
 
@@ -171,8 +184,10 @@ public sealed class CallSessionFactory : ICallSessionFactory
 
     private static void ValidateCompatibleSession(ICallSession existing, CallSessionRequest requested)
     {
-        if (!Equals(existing.CallInformation, requested.CallContext)
-            || requested.PreferredTier is { } requestedTier && existing.Strategy.Tier != requestedTier)
+        var conflictingRouting = existing is CallSession callSession
+            && (!string.Equals(callSession.Routing.WorkflowId, requested.WorkflowId, StringComparison.Ordinal)
+                || callSession.Routing.PreferredTier != requested.PreferredTier);
+        if (!Equals(existing.CallInformation, requested.CallContext) || conflictingRouting)
         {
             throw new InvalidOperationException(
                 $"Call '{requested.CallContext.CallId}' already has a session with conflicting routing inputs.");

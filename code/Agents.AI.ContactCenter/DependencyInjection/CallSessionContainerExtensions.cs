@@ -6,7 +6,9 @@ using Agents.AI.Sandbox;
 using Agents.AI.ContactCenter.Calling.Strategies.Composite;
 using Agents.AI.ContactCenter.Configuration;
 using Agents.AI.ContactCenter.Coordination;
+using Agents.AI.ContactCenter.IvrWorkflow;
 using Agents.AI.ContactCenter.IvrWorkflow.Catalog;
+using Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 using Agents.AI.ContactCenter.IvrWorkflow.Execution;
 using Agents.AI.ContactCenter.Telemetry;
 using Agents.AI.Extensions.AITools;
@@ -60,15 +62,26 @@ public static class CallSessionContainerExtensions
 
     public static CallSessionContainerBuilder AddContactCenter(this IHostApplicationBuilder builder, CommunicationOptions communicationOptions)
     {
+        ArgumentNullException.ThrowIfNull(communicationOptions);
 
         builder.Services.Configure<CommunicationOptions>(options =>
         {
-            options = communicationOptions;
+            options.EnableOpenTelemetryInstrumentation = communicationOptions.EnableOpenTelemetryInstrumentation;
+            options.ConfigureAcsTeamsIntegration = communicationOptions.ConfigureAcsTeamsIntegration;
+            options.Acs = communicationOptions.Acs;
+            options.Teams = communicationOptions.Teams;
+            options.CallState = communicationOptions.CallState;
         });
 
         builder.Services.Configure<CallStateOptions>(options =>
         {
-            options = communicationOptions.CallState;
+            options.Backend = communicationOptions.CallState.Backend;
+            options.EnableEventLog = communicationOptions.CallState.EnableEventLog;
+            options.SnapshotEveryNEvents = communicationOptions.CallState.SnapshotEveryNEvents;
+            options.CosmosDatabaseName = communicationOptions.CallState.CosmosDatabaseName;
+            options.CosmosSnapshotContainerName = communicationOptions.CallState.CosmosSnapshotContainerName;
+            options.CosmosEventContainerName = communicationOptions.CallState.CosmosEventContainerName;
+            options.Ttl = communicationOptions.CallState.Ttl;
         });
         return builder.AddCallSessionContainerCore();
     }
@@ -118,6 +131,7 @@ public static class CallSessionContainerExtensions
         // Per-call workflow selection, bound by CallSessionFactory before the strategy is built.
         services.TryAddScoped<CallWorkflowSelection>();
         services.TryAddScoped<ICallContextAccessor, CallContextAccessor>();
+        services.TryAddScoped<CallTierAdmission>();
 
         // Per-call workflow state and caller-auth state, shared across composite tier swaps
         // because every inner strategy in the same call scope resolves the same instance.
@@ -129,8 +143,9 @@ public static class CallSessionContainerExtensions
         {
             var catalog = sp.GetRequiredService<ICallWorkflowCatalog>();
             var selection = sp.GetRequiredService<CallWorkflowSelection>();
-            var compiled = selection.Resolve(catalog);
-            return compiled;
+            var options = sp.GetRequiredService<IOptions<CallWorkflowOptions>>().Value;
+            var metadata = selection.Resolve(catalog, options.DefaultWorkflowId);
+            return sp.GetRequiredService<WorkflowRuntimeBinder>().Bind(metadata);
         });
         services.TryAddScoped<CallWorkflowSession>();
 
@@ -254,7 +269,11 @@ public sealed class CallSessionContainerBuilder(IHostApplicationBuilder builder)
         // Snapshot to defend against caller mutation of the params array after registration.
         var snapshot = orderedTiers.ToArray();
 
-        Services.AddKeyedTransient<IConversationStrategy>(topTier, (sp, _) => new CompositeFallbackStrategy(snapshot,sp.GetRequiredService<CallWorkflowSession>(), sp.GetService<ILoggerFactory>()));
+        Services.AddKeyedTransient<IConversationStrategy>(topTier, (sp, _) => new CompositeFallbackStrategy(
+            snapshot,
+            sp.GetRequiredService<CallWorkflowSession>(),
+            sp.GetRequiredService<CallTierAdmission>(),
+            sp.GetService<ILoggerFactory>()));
         return this;
     }
 

@@ -45,40 +45,53 @@ tones during normal operation:
         │
         ▼
   ┌────────────────────────────┐
-  │ IIvrWorkflowDefinitionSource│   pluggable: filesystem, IConfiguration, Azure Blob
+  │ CallWorkflowYamlReader    │   reads and validates YAML, produces <name,version> key
   └────────────────────────────┘
-        │  IvrWorkflowSourceEntry (raw YAML text)
+        │
         ▼
   ┌────────────────────────────┐
-  │ IIvrWorkflowLoader          │   parse → validate → compile, with caching
-  └────────────────────────────┘
-        │  IvrWorkflowDocument (typed YAML model)
-        ▼
-  ┌────────────────────────────┐
-  │ IIvrWorkflowCompiler        │   resolves tools, guards, predicates;
-  │  + IIvrToolRegistry         │   produces a runtime-ready bundle
-  │  + IIvrGuardFactory         │
+  │ WorkflowGraphCompiler      │   compiles all workflows in a catalog
+  │  + IIvrToolRegistry         │   resolves tools, guards, predicates;
+  │  + IIvrGuardFactory         │   produces a metadata-only catalog
   │  + IIvrPredicateRegistry    │
   └────────────────────────────┘
-        │  CompiledIvrWorkflow  (Stages + RealtimeIvrWorkflowDefinition runtime)
+        │
+  ┌─────┴──────────────────────────┐
+  │ ICallWorkflowCatalog          │   singleton workflow metadata by name+version
+  └────────────────────────────────┘
+        │
         ▼
-  ┌────────────────────┐   ┌─────────────────────────────┐
-  │ Call runtime       │   │ IIvrWorkflowGraphBuilder    │
-  │ (existing IVR      │   │ ↓                           │
-  │  controller / nav) │   │ Microsoft.Agents.AI.Workflows│
-  └────────────────────┘   │  Workflow (executors+edges) │
-                           └─────────────────────────────┘
+  ┌────────────────────────────┐
+  │ WorkflowStartupValidationService │   validates startup Graphs
+  └────────────────────────────┘
+
 ```
+Every hosted workflow goes through this pipeline at least once:
 
-Two consumption paths share the same compiled artifact:
+- **YAML -> CallWorkflowYamlReader** — read and validate the document, produce
+  a consistent `(name,version)` key.
+- **WorkflowGraphCompiler** — compile all workflows in the catalog:
+  - **Tools, Guards, Predicates** — references are resolved and validated
+    against the configured `IIvrToolRegistry`, `IIvrGuardFactory`, and
+    `IIvrPredicateRegistry`.
+  - **Metadata-only catalog** — produces a singleton `ICallWorkflowCatalog`
+    instance per unique workflow key.
+- **WorkflowStartupValidationService** — temporary scope validates the startup
+  Graph structure, transition targets, named predicates, and tool resolutions.
+  This service runs once per application lifetime.
 
-1. **Legacy/runtime path** — `CompiledIvrWorkflow.Runtime` exposes a
-   `RealtimeIvrWorkflowDefinition` consumed by the existing
-   `RealtimeIvrWorkflowController` and `IvrWorkflowNavigator`. No call-handling code
-   had to change.
-2. **Workflow-graph path** — `IIvrWorkflowGraphBuilder` projects the compiled stages
-   into a `Microsoft.Agents.AI.Workflows.Workflow`, enabling visualization,
-   orchestration, and reuse alongside any other Agent Framework workflow.
+Holistic validation ensures that any given `(name,version)` workflow can be located,
+is structurally sound, and has all its tools and predicates available before any calls
+are processed.
+
+### 1.1 CompiledStage
+
+At the core of the compilation output is a `CompiledStage`, which contains:
+- **Stage shape** — id, type, transitions, etc.
+- **Tool references** — names of tools to invoke, if any
+- **Predicate references** — names of predicates to evaluate, if any
+
+A `CompiledStage` never directly captures or retains any scoped service instances.
 
 ---
 
@@ -133,151 +146,81 @@ shape, etc.) see [`Schema/Schema.md`](./Schema/Schema.md). Working samples live 
 ## 3. Hosting the framework
 
 Register the framework in your host's DI container with
-`AddIvrWorkflowFramework(...)`:
+`builder.AddStandardContactCenter()...`:
 
 ```csharp
-services.AddIvrWorkflowFramework(b =>
-{
-    // 1. Where do YAML documents come from? (pluggable, can stack multiple sources)
-    b.AddFileSystemSource(Path.Combine(AppContext.BaseDirectory, "IvrWorkflow", "Samples"));
-    // b.AddConfigurationSource(builder.Configuration, "IvrWorkflows");
-    // b.AddBlobSource(containerClient);
-
-    // 2. Tools the workflows reference by name.
-    b.AddToolsFromAssembly(typeof(BankingTools).Assembly);   // [McpServerTool] / [AITool] discovery
-    b.AddTool("balance-lookup", AIFunctionFactory.Create(BankingTools.GetBalance));
-    b.AddTool("activate-card",  AIFunctionFactory.Create(BankingTools.ActivateCard));
-
-    // 3. (Optional) named predicates referenced by `requires: [{ type: predicate, predicate: ... }]`
-    b.AddPredicate("is-business-hours", state => DateTime.UtcNow.Hour is >= 13 and < 23);
-});
+builder.AddStandardContactCenter()
+       .AddWorkflowsFromDirectory(...)
+       .ConfigureDefaultWorkflow(...)
+       .AddTools<TTools>()
+       .UseStandardVoiceFallback(...);
 ```
 
-`AddIvrWorkflowFramework` registers:
+### 3.1. Request WorkflowId precedence
+
+In the above call chain, `ConfigureDefaultWorkflow` establishes a fallback for any
+workflow that does not have an explicit `name` / `version` in the request.
+
+However, any `CallWorkflowOptions.DefaultWorkflowId` still applies, and takes
+precedence over the default configured in the DI container.
+
+### 3.2. Service lifetimes
 
 | Service                      | Lifetime | Purpose                                                     |
 | ---------------------------- | -------- | ----------------------------------------------------------- |
-| `IIvrToolRegistry`           | Singleton| Resolves tool names from YAML to `AITool` instances.        |
-| `IIvrPredicateRegistry`      | Singleton| Resolves named predicates for `requires:` guards.           |
-| `IIvrGuardFactory`           | Singleton| Builds `IIvrStepGuard` from declarative guard descriptors.  |
-| `IIvrWorkflowCompiler`       | Singleton| YAML document → `CompiledIvrWorkflow`.                      |
-| `IIvrWorkflowLoader`         | Singleton| Source → parse → validate → compile (with cache).           |
-| `IIvrWorkflowGraphBuilder`   | Singleton| `CompiledIvrWorkflow` → `Workflow` (Agent Framework graph). |
-| `IIvrWorkflowDefinitionSource` | Singleton (multi) | One per `Add*Source(...)` call.                |
+| `WorkflowGraphCompiler`     | Singleton| Compiles all workflows in the catalog                       |
+| `ICallWorkflowCatalog`      | Singleton| Resolves workflow metadata by name+version                 |
+| `WorkflowRuntimeBinder`     | Scoped   | Binds and activates request-scoped workflow execution       |
+| `IIvrToolRegistry`          | Scoped   | Resolves tool names from YAML to `AITool` instances        |
+| `INamedEdgePredicateProvider`| Scoped   | Resolves named predicates for `requires:` guards            |
+| `CallWorkflowSession`       | Scoped   | The active workflow instance for a call                    |
 
-### Loading a workflow at request time
+### 3.3. Startup guarantees
 
-```csharp
-public sealed class CallEntryPoint(IIvrWorkflowLoader loader)
-{
-    public async Task<CompiledIvrWorkflow> LoadAsync(string workflowId, CancellationToken ct)
-        => await loader.LoadAsync(workflowId, ct);
-}
-```
+Before any requests are processed, the following validations happen exactly once
+per application lifetime:
 
-`LoadAsync` is async, cached, and validates the document against
-[`ivr-workflow.schema.json`](./Schema/ivr-workflow.schema.json) and the cross-reference
-validator before returning.
+- **Graph structure** — all workflows defined in YAML are acyclic, and have
+  a single, reachable start stage
+- **Transition targets** — every transition or route target is a valid stage id
+- **Named predicates** — all referenced predicates are registered
+- **Missing tools** — every tool reference is resolvable through the
+  `IIvrToolRegistry`
+- **Duplicate tool names** — no two tools have the same effective name
+
+These validations ensure that any workflow metadata resolved at runtime is backed
+by a structurally sound and complete definition.
+
+### 3.4 Runtime behavior
+
+A typical execution flows through the following key stages:
+
+- **Request begins** — `WorkflowRuntimeBinder` activates a `CallWorkflowSession`
+  scoped to the incoming request. The binder locates the requested workflow's
+  metadata and validates the initial state.
+- **Graph execution** — as the graph executes, stages may emit events that cause
+  NLU or DTMF input to be processed. This input is routed according to the
+  configured workflow, including any composite failover to other input types.
+- **State management** — the `CallStateProjector` captures and restores state
+  across tier transitions, ensuring a seamless handoff between realtime, NLU,
+  DTMF, and composite stages.
+
+This architecture allows for high flexibility in authoring workflows, while
+maintaining strict validation and routing guarantees.
 
 ---
 
 ## 4. The Agent Framework workflow bridge
 
-The new bridge in [`Workflows/`](./Workflows/) projects each compiled stage into a
-graph node that the Microsoft Agent Framework can execute and visualize.
-
-### Components
-
-| File | Role |
-| ---- | ---- |
-| `IvrStageMessage.cs` | Record passed between executors. Carries `StageId`, `FromStageId`, optional `NextStageIdHint`, and accumulated `State`. `RouteTo(to, from)` is the canonical way to forward routing decisions. |
-| `IvrStageExecutor.cs` | `Executor<IvrStageMessage>` representing one stage. Stamps provenance into the outgoing message and either yields workflow output (terminal stages) or broadcasts the message to connected edges. |
-| `IIvrWorkflowGraphBuilder.cs` | Contract: `Workflow Build(CompiledIvrWorkflow)`. Throws `IvrWorkflowGraphBuildException` on invalid graphs (duplicate stage ids, unknown transition targets). |
-| `IvrWorkflowGraphBuilder.cs` | The bridge implementation (see below). |
-| `IvrWorkflowLoaderGraphExtensions.cs` | `loader.BuildGraphAsync(graphBuilder, workflowId, ct)` — convenience one-shot load + compile + bridge. |
-
-### How transitions are projected
-
-The bridge aggregates transitions from **every authoring surface** the compiler
-recognizes, then dedupes by target so each `(source, target)` pair becomes a single
-edge:
-
-1. `RuntimeStep.ConversationState.Transitions` — explicit YAML `transitions:`,
-   intent `next_stage`, and `on_exit`.
-2. `RuntimeStep.StepDtmfConfiguration.MenuOptions[d].NextStepId` — DTMF menu choices.
-3. `RuntimeStep.StepDtmfConfiguration.OnValidNextStepId` — DTMF digit-collection
-   success branch.
-
-Edge predicates honor `IvrStageMessage.NextStageIdHint`: if the executor set a hint,
-only the matching edge fires; if no hint was set **and** the source has exactly one
-outgoing edge, the message single-steps automatically. Otherwise the predicate is a
-no-op and the host (or a future routing decision) must set the hint.
-
-Terminal stages (`terminal: true`) are wired as workflow outputs via
-`WorkflowBuilder.WithOutputFrom(...)`.
-
-### Building and inspecting a graph
-
-```csharp
-public sealed class IvrGraphPreview(IIvrWorkflowLoader loader, IIvrWorkflowGraphBuilder graphs)
-{
-    public async Task<Workflow> PreviewAsync(string id, CancellationToken ct)
-    {
-        // One-shot: load → compile → project to Workflow
-        return await loader.BuildGraphAsync(graphs, id, ct);
-    }
-
-    public static void PrintShape(Workflow workflow)
-    {
-        Console.WriteLine($"Start: {workflow.StartExecutorId}");
-        foreach (var (sourceId, edges) in workflow.ReflectEdges())
-        {
-            foreach (var edge in edges)
-            {
-                Console.WriteLine($"  {sourceId} → {edge.TargetId}");
-            }
-        }
-    }
-}
-```
-
-### Driving the graph
-
-`IvrStageExecutor` accepts an `IvrStageMessage` and forwards it. To run a workflow,
-seed the start executor with an initial message:
-
-```csharp
-var workflow = builder.Build(compiled);
-var run = await InProcessExecution.RunAsync(workflow, new IvrStageMessage(
-    StageId:        workflow.StartExecutorId,
-    FromStageId:    null,
-    NextStageIdHint:null,
-    State:          ImmutableDictionary<string, object?>.Empty));
-```
-
-Each executor sets `FromStageId` to its own id before forwarding, so downstream edge
-predicates can decide whether to route. The runtime fan-out is therefore *fully
-deterministic* given a `NextStageIdHint`, while still supporting "single outgoing edge
-auto-routes" for linear flows that don't need explicit hints.
+Removed in favor of direct integration with the Microsoft Agent Framework via
+`WorkflowGraphCompiler`.
 
 ---
 
 ## 5. Validation guarantees
 
-Before the runtime ever sees a workflow, the loader has already:
-
-- validated the YAML against [`ivr-workflow.schema.json`](./Schema/ivr-workflow.schema.json);
-- enforced **uniqueness** of stage ids and capability ids;
-- verified that every transition target, `on_exit`, intent `next_stage`, capability
-  reference, and DTMF `nextStage` resolves to a known stage / capability id;
-- resolved every tool name through `IIvrToolRegistry`, failing the compile if a tool
-  is missing (so production hosts can't silently no-op).
-
-The graph builder adds two additional structural checks at projection time:
-
-- no duplicate stage ids in the compiled bundle (defense in depth), and
-- every aggregated transition resolves to a known executor, throwing
-  `IvrWorkflowGraphBuildException` otherwise.
+Removed; validation is now handled holistically at startup, and per-request
+validation is not permitted to retain state or scoped instances.
 
 ---
 
@@ -306,7 +249,3 @@ These also act as canonical examples of stubbing tools in tests via
   [`Samples/utility-bill-pay.yaml`](./Samples/utility-bill-pay.yaml)
 - **DI surface:** [`DependencyInjection/IvrWorkflowServiceCollectionExtensions.cs`](./DependencyInjection/IvrWorkflowServiceCollectionExtensions.cs)
 - **Compiler:** [`Compilation/IvrWorkflowCompiler.cs`](./Compilation/IvrWorkflowCompiler.cs)
-- **Graph bridge:** [`Workflows/IvrWorkflowGraphBuilder.cs`](./Workflows/IvrWorkflowGraphBuilder.cs)
-- **Tool registry:** [`Registry/IvrToolRegistry.cs`](./Registry/IvrToolRegistry.cs) and
-  [`Registry/IvrBuiltInTools.cs`](./Registry/IvrBuiltInTools.cs) (auto-registered
-  `transfer-to-human`, `end-session`, `acknowledge`)

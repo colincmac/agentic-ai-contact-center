@@ -1,14 +1,25 @@
 <Solution>
+  <Folder Name="/AgentFrameworkExtensions/">
+    <Project Path="Agents.AI.ContactCenter.Testing/Agents.AI.ContactCenter.Testing.csproj" />
+    <Project Path="Agents.AI.ContactCenter/Agents.AI.ContactCenter.csproj" />
+    <Project Path="Agents.AI.Extensions/Agents.AI.Extensions.csproj" />
+    <Project Path="Agents.AI.Monitoring/Agents.AI.Monitoring.csproj" />
+    <Project Path="Agents.AI.Sandbox/Agents.AI.Sandbox.csproj" />
+    <Project Path="Agents.AI/Agents.AI.csproj" />
+    <Project Path="Extensions.AI/Extensions.AI.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path="Directory.Build.props" />
     <File Path="Directory.Build.targets" />
   </Folder>
-  <Project Path="Agents.AI.ContactCenter/Agents.AI.ContactCenter.csproj" />
-  <Project Path="Agents.AI.Extensions/Agents.AI.Extensions.csproj" />
-  <Project Path="Agents.AI.Monitoring/Agents.AI.Monitoring.csproj" />
-  <Project Path="Agents.AI/Agents.AI.csproj" />
-  <Project Path="Agents.AI.Sandbox/Agents.AI.Sandbox.csproj" />
+  <Folder Name="/test/">
+    <Project Path="test/Agents.AI.ContactCenter.Testing.Tests/Agents.AI.ContactCenter.Testing.Tests.csproj" />
+    <Project Path="test/Agents.AI.ContactCenter.Tests/Agents.AI.ContactCenter.Tests.csproj" />
+    <Project Path="test/Agents.AI.Extensions.Tests/Agents.AI.Extensions.Tests.csproj" />
+    <Project Path="test/Agents.AI.Sandbox.Tests/Agents.AI.Sandbox.Tests.csproj" />
+    <Project Path="test/AI.TestingFramework/AI.TestingFramework.csproj" />
+  </Folder>
   <Project Path="ContactCenter.AppHost/ContactCenter.AppHost.csproj" />
   <Project Path="ContactCenter.ServiceDefaults/ContactCenter.ServiceDefaults.csproj" />
-  <Project Path="Extensions.AI/Extensions.AI.csproj" />
+
 </Solution>

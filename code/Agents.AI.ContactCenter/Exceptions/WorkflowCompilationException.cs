@@ -16,9 +16,9 @@ public sealed class WorkflowCompilationException(string workflowId, IReadOnlyLis
 
     private static string BuildMessage(string workflowId, IReadOnlyList<string> errors)
     {
-        ArgumentException.ThrowIfNullOrEmpty(workflowId);
         ArgumentNullException.ThrowIfNull(errors);
-        return $"Workflow '{workflowId}' failed to compile with {errors.Count} error(s):" +
+        var displayId = string.IsNullOrWhiteSpace(workflowId) ? "<unknown>" : workflowId;
+        return $"Workflow '{displayId}' failed to compile with {errors.Count} error(s):" +
             Environment.NewLine +
             string.Join(Environment.NewLine, errors.Select(e => "  - " + e));
     }
