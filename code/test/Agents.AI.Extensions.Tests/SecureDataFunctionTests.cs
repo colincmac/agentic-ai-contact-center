@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Agents.AI.Extensions.SensitiveData;
 using Microsoft.Extensions.AI;
 
 namespace Agents.AI.Extensions.Tests;

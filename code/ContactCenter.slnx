@@ -15,7 +15,6 @@
   <Folder Name="/test/">
     <Project Path="test/Agents.AI.ContactCenter.Testing.Tests/Agents.AI.ContactCenter.Testing.Tests.csproj" />
     <Project Path="test/Agents.AI.ContactCenter.Tests/Agents.AI.ContactCenter.Tests.csproj" />
-    <Project Path="test/Agents.AI.Extensions.Tests/Agents.AI.Extensions.Tests.csproj" />
     <Project Path="test/Agents.AI.Sandbox.Tests/Agents.AI.Sandbox.Tests.csproj" />
     <Project Path="test/AI.TestingFramework/AI.TestingFramework.csproj" />
   </Folder>
