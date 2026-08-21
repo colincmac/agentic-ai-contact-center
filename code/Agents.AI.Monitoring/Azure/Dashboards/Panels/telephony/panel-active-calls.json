@@ -1,0 +1,71 @@
+{
+  "__meta": "REUSABLE. Active calls + call volume from Managed Prometheus. UpDownCounter contact_center.call.active as a gauge line, plus created/ended rate as bars — the concurrency + volume archetype (reference media_contexts_current / call volume).",
+  "type": "timeseries",
+  "title": "Active calls & throughput",
+  "description": "Concurrent active call sessions (line) and call created/ended rate (bars), from CallingTelemetry.",
+  "datasource": { "type": "prometheus", "uid": "${prom}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "line",
+        "lineInterpolation": "smooth",
+        "lineWidth": 2,
+        "fillOpacity": 10,
+        "showPoints": "never",
+        "spanNulls": false,
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "none"
+    },
+    "overrides": [
+      {
+        "matcher": { "id": "byFrameRefID", "options": "B" },
+        "properties": [
+          { "id": "custom.drawStyle", "value": "bars" },
+          { "id": "custom.fillOpacity", "value": 25 }
+        ]
+      },
+      {
+        "matcher": { "id": "byFrameRefID", "options": "C" },
+        "properties": [
+          { "id": "custom.drawStyle", "value": "bars" },
+          { "id": "custom.fillOpacity", "value": 25 }
+        ]
+      }
+    ]
+  },
+  "options": {
+    "legend": { "calcs": ["min", "mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "sum(contact_center_call_active)",
+      "legendFormat": "active",
+      "range": true
+    },
+    {
+      "refId": "B",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "sum(rate(contact_center_call_created_total[$__rate_interval]))",
+      "legendFormat": "created/s",
+      "range": true
+    },
+    {
+      "refId": "C",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "sum(rate(contact_center_call_ended_total[$__rate_interval]))",
+      "legendFormat": "ended/s",
+      "range": true
+    }
+  ]
+}

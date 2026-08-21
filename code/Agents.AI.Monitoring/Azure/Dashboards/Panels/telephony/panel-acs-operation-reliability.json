@@ -1,0 +1,51 @@
+{
+  "__meta": "REUSABLE. ACS Call Automation reliability from Log Analytics. Reliability timeseries: 1 - failed/total operations. percentunit, decimals 3, thresholds red / yellow@0.95 / green@0.99, thresholdsStyle area — the reliability-timeseries archetype from the reference dashboard, retargeted at ACS diagnostic logs.",
+  "type": "timeseries",
+  "title": "ACS — Operation reliability",
+  "description": "1 − failed/total ACS Call Automation operations. Green ≥ 99%, amber ≥ 95%.",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "thresholds" },
+      "decimals": 3,
+      "custom": {
+        "drawStyle": "line",
+        "lineInterpolation": "smooth",
+        "lineWidth": 1,
+        "fillOpacity": 0,
+        "showPoints": "auto",
+        "spanNulls": false,
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "area" }
+      },
+      "mappings": [],
+      "min": 0,
+      "max": 1,
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "red", "value": null },
+          { "color": "yellow", "value": 0.95 },
+          { "color": "green", "value": 0.99 }
+        ]
+      },
+      "unit": "percentunit"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "single", "sort": "none" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "ACSCallAutomationIncomingOperations\n| where TimeGenerated $__timeFilter()\n| summarize Total = count(), Failed = countif(ResultType != 'Succeeded') by bin(TimeGenerated, 5m)\n| project TimeGenerated, Reliability = iff(Total == 0, 1.0, 1.0 - todouble(Failed) / Total)\n| order by TimeGenerated asc"
+      }
+    }
+  ]
+}

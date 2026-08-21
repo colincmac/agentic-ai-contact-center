@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package agents.realtimevoice.v1;
+
+// Audio frame pushed from client to server or server to client.
+message AudioFrame {
+  string session_id = 1;
+  string channel_id = 2;
+  bytes pcm = 3;
+  int64 timestamp_unix_ms = 4;
+}
+
+// Text / control message (simplified).
+message ControlMessageUpdate {
+  string session_id = 1;
+  string channel_id = 2;
+  string role = 3;
+  string text = 4;
+  int64 timestamp_unix_ms = 5;
+}
+
+message ClientEnvelope {
+  oneof payload {
+    AudioFrame audio = 1;
+    ControlMessageUpdate chat = 2;
+  }
+}
+
+message ServerEnvelope {
+  oneof payload {
+    AudioFrame audio = 1;
+    ControlMessageUpdate chat = 2;
+  }
+}
+
+// Bidirectional stream for audio (primary) and fallback messages (optional).
+service ConversationStream {
+  rpc Connect(stream ClientEnvelope) returns (stream ServerEnvelope);
+}

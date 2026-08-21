@@ -1,0 +1,39 @@
+{
+  "__meta": "REUSABLE. GenAI token usage from Managed Prometheus histogram gen_ai.client.token.usage, split by gen_ai.token.type (input/output). Bars + legend sum — the token-usage archetype from the reference dashboard (panel_llm_total_token_usage_by_orgs), retargeted at OpenTelemetryConversationSession GenAI metrics.",
+  "type": "timeseries",
+  "title": "LLM token usage (input/output)",
+  "description": "Token consumption rate by type, from the GenAI client token-usage histogram.",
+  "datasource": { "type": "prometheus", "uid": "${prom}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "bars",
+        "fillOpacity": 25,
+        "lineWidth": 1,
+        "stacking": { "group": "A", "mode": "normal" },
+        "showPoints": "never",
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "none"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "sum(rate(gen_ai_client_token_usage_tokens_sum[$__rate_interval])) by (gen_ai_token_type)",
+      "legendFormat": "{{gen_ai_token_type}} tokens/s",
+      "range": true
+    }
+  ]
+}

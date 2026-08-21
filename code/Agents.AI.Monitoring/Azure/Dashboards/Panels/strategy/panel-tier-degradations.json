@@ -1,0 +1,39 @@
+{
+  "__meta": "REUSABLE. Tier degradations from Managed Prometheus counter contact_center.strategy.tier_degradations, split by from/to tier. Bars — surfaces graceful-degradation events (RealtimeVoice → IntentNlu → DtmfOnly). This is a platform-specific signal with no direct reference-dashboard analogue; modeled on the reference's event-count archetype.",
+  "type": "timeseries",
+  "title": "Tier degradations (graceful fallback)",
+  "description": "Composite-strategy tier degradations per second, by transition. Spikes indicate realtime/voice or NLU capacity loss forcing fallback to a lower tier.",
+  "datasource": { "type": "prometheus", "uid": "${prom}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "bars",
+        "fillOpacity": 40,
+        "lineWidth": 1,
+        "stacking": { "group": "A", "mode": "normal" },
+        "showPoints": "never",
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "none"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "sum(rate(contact_center_strategy_tier_degradations_total[$__rate_interval])) by (from_tier, to_tier)",
+      "legendFormat": "{{from_tier}} → {{to_tier}}",
+      "range": true
+    }
+  ]
+}

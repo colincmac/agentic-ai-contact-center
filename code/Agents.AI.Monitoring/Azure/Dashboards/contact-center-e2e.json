@@ -1,0 +1,101 @@
+{
+  "__meta": "Grafana dashboard model for the E2E contact-center single pane. Import into Azure Managed Grafana; set the 'Azure Monitor' data source and the 'law' (Log Analytics workspace) + 'e2e' variables. Panels query the KQL assets under Agents.AI.Monitoring/Azure/Queries and Dynamics/Queries.",
+  "title": "Contact Center — E2E Call Observability",
+  "uid": "cc-e2e-observability",
+  "schemaVersion": 39,
+  "editable": true,
+  "tags": ["contact-center", "acs", "d365", "ivr", "correlation"],
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "type": "datasource",
+        "query": "grafana-azure-monitor-datasource",
+        "label": "Azure Monitor"
+      },
+      {
+        "name": "law",
+        "type": "textbox",
+        "label": "Log Analytics workspace resource id",
+        "current": { "text": "", "value": "" }
+      },
+      {
+        "name": "e2e",
+        "type": "textbox",
+        "label": "e2e.call_id",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Single-Call Trace (e2e.call_id = $e2e)",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "declare query_parameters(e2e:string = '${e2e}');\nlet ivr = union AppDependencies, AppRequests, AppTraces | where tostring(Properties['e2e.call_id']) == e2e | project TimestampUtc = TimeGenerated, Boundary='IVR', Source=ItemType, Operation=coalesce(column_ifexists('Name',''), column_ifexists('Message','')), CallConnectionId=tostring(Properties['acs.call_connection_id']), ContextId=tostring(Properties['call.context_id']);\nlet connIds = toscalar(ivr | where isnotempty(CallConnectionId) | summarize make_set(CallConnectionId));\nlet ctxId = toscalar(ivr | where isnotempty(ContextId) | take 1 | project ContextId);\nlet acs = ACSCallAutomationIncomingOperations | where CallConnectionId in (connIds) | project TimestampUtc = TimeGenerated, Boundary='ACS', Source='CallAutomation', Operation=OperationName, CallConnectionId, ContextId='';\nlet d365 = AppTraces | extend cd=parse_json(Properties) | where tostring(cd['cc_contextId'])==ctxId and isnotempty(ctxId) | project TimestampUtc = TimeGenerated, Boundary='D365', Source='ConversationDiagnostics', Operation=tostring(cd['powerplatform.analytics.subscenario']), CallConnectionId='', ContextId=tostring(cd['cc_contextId']);\nunion ivr, acs, d365 | order by TimestampUtc asc"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Live Ops — IVR RED (rate / errors / latency)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "AppRequests | where TimeGenerated > ago(1h) | summarize Requests=count(), Failures=countif(Success==false), P95Ms=percentile(DurationMs,95) by bin(TimeGenerated,1m) | order by TimeGenerated asc"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Transfer Success — ACS accepted vs D365 conversations",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "let acsTransfers = ACSCallAutomationIncomingOperations | where OperationName has_any ('Transfer','CallTransferAccepted','CallTransferFailed') | summarize TransfersAccepted=countif(OperationName has 'Accepted' or ResultType=='Succeeded'), TransfersFailed=countif(OperationName has 'Failed' or ResultType=='Failed');\nlet d365 = AppTraces | extend cd=parse_json(Properties) | where tostring(cd['powerplatform.analytics.subscenario']) has_any ('Classification','RouteToQueue') | summarize D365ConversationsCreated=dcount(tostring(cd['cc_contextId']));\nacsTransfers | extend d=1 | join kind=fullouter (d365 | extend d=1) on d | project TransfersAccepted, TransfersFailed, D365ConversationsCreated, HandoffGap = TransfersAccepted - D365ConversationsCreated"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Routing / Queue — D365 subscenario distribution",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 21 },
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "AppTraces | where TimeGenerated > ago(24h) | extend cd=parse_json(Properties) | extend Subscenario=tostring(cd['powerplatform.analytics.subscenario']) | where isnotempty(Subscenario) | summarize Events=count() by Subscenario, bin(TimeGenerated,15m) | order by TimeGenerated asc"
+          }
+        }
+      ]
+    }
+  ]
+}

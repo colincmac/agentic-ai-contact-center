@@ -1,0 +1,40 @@
+{
+  "__meta": "REUSABLE. ACS Call Automation operations from Log Analytics (ACSCallAutomationIncomingOperations). Table of operation volume + result split — the api-requests/operations archetype from the reference dashboard, retargeted at ACS diagnostic logs.",
+  "type": "timeseries",
+  "title": "ACS — Call Automation operations",
+  "description": "ACS Call Automation operation volume by operation and result, from Log Analytics diagnostic logs.",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "bars",
+        "fillOpacity": 25,
+        "lineWidth": 1,
+        "stacking": { "group": "A", "mode": "normal" },
+        "axisPlacement": "auto",
+        "showPoints": "never",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "none"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "ACSCallAutomationIncomingOperations\n| where TimeGenerated $__timeFilter()\n| summarize Count = count() by OperationName, bin(TimeGenerated, 1m)\n| order by TimeGenerated asc"
+      }
+    }
+  ]
+}

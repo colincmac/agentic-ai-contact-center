@@ -1,0 +1,43 @@
+{
+  "__meta": "REUSABLE. IVR latency percentiles (RED: Duration). Azure Monitor Logs over AppRequests. ms unit, p50/p95/p99 series, legend table with min/mean/max/p95 calcs — the latency-percentile archetype from the reference dashboard.",
+  "type": "timeseries",
+  "title": "IVR — Request latency (p50/p95/p99)",
+  "description": "Request duration percentiles for the IVR app, from App Insights AppRequests.",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic-by-name" },
+      "custom": {
+        "drawStyle": "line",
+        "lineInterpolation": "smooth",
+        "lineWidth": 2,
+        "fillOpacity": 8,
+        "pointSize": 5,
+        "showPoints": "auto",
+        "spanNulls": false,
+        "axisPlacement": "auto",
+        "stacking": { "group": "A", "mode": "none" },
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "ms"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["min", "mean", "max", "lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "AppRequests\n| where TimeGenerated $__timeFilter()\n| summarize P50 = percentile(DurationMs, 50), P95 = percentile(DurationMs, 95), P99 = percentile(DurationMs, 99) by bin(TimeGenerated, 1m)\n| order by TimeGenerated asc"
+      }
+    }
+  ]
+}

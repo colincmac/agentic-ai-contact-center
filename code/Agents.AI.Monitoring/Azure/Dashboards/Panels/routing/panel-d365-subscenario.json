@@ -1,0 +1,40 @@
+{
+  "__meta": "REUSABLE. D365 routing-stage distribution. Azure Monitor Logs over conversation-diagnostics subscenario (reuses Dynamics/Queries/routing-queue.kql). Timeseries by subscenario — the routing/queue distribution panel from the E2E pane, promoted to a shared panel.",
+  "type": "timeseries",
+  "title": "Routing / queue — D365 subscenario distribution",
+  "description": "Dynamics 365 routing-stage distribution over time, from conversation-diagnostics telemetry.",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "bars",
+        "fillOpacity": 40,
+        "lineWidth": 1,
+        "stacking": { "group": "A", "mode": "normal" },
+        "showPoints": "never",
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "none"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "AppTraces\n| where TimeGenerated $__timeFilter()\n| extend cd = parse_json(Properties)\n| extend Subscenario = tostring(cd['powerplatform.analytics.subscenario'])\n| where isnotempty(Subscenario)\n| summarize Events = count() by Subscenario, bin(TimeGenerated, 15m)\n| order by TimeGenerated asc"
+      }
+    }
+  ]
+}

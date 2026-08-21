@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package biometrics.v1;
+
+option csharp_namespace = "Agents.AI.RealtimeVoice.Azure.Biometrics.Grpc";
+
+// Message for enrollment request - used in streaming
+message EnrollRequest {
+  oneof data {
+    // User identifier - should be sent in the first message
+    string user_id = 1;
+    // Audio data chunk - sent in subsequent messages
+    bytes audio_chunk = 2;
+  }
+}
+
+// Response for enrollment
+message EnrollResponse {
+  // Whether enrollment was successful
+  bool success = 1;
+  // Optional message with details
+  string message = 2;
+}
+
+// Message for verification request - used in streaming
+message VerifyRequest {
+  oneof data {
+    // User identifier - should be sent in the first message
+    string user_id = 1;
+    // Audio data chunk - sent in subsequent messages
+    bytes audio_chunk = 2;
+  }
+}
+
+// Response for verification
+message VerifyResponse {
+  // Whether the speaker matches the enrolled user
+  bool is_match = 1;
+  // Cosine similarity score between embeddings
+  float similarity_score = 2;
+}
+
+// Biometric service for speaker enrollment and verification
+service BiometricService {
+  // Enroll a user with their voice sample
+  // Client streams user_id (first message) followed by audio chunks
+  rpc EnrollUser(stream EnrollRequest) returns (EnrollResponse);
+
+  // Verify a user against their enrolled voice sample
+  // Client streams user_id (first message) followed by audio chunks
+  rpc VerifyUser(stream VerifyRequest) returns (VerifyResponse);
+}

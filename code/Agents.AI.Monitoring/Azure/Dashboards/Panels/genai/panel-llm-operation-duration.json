@@ -1,0 +1,56 @@
+{
+  "__meta": "REUSABLE. GenAI operation duration p50/p95/p99 from Managed Prometheus histogram gen_ai.client.operation.duration (seconds). histogram_quantile by le, split by model — the latency-percentile archetype (reference llm_latency), retargeted at GenAI operation-duration histogram.",
+  "type": "timeseries",
+  "title": "LLM operation duration (p50/p95/p99)",
+  "description": "GenAI client operation latency percentiles, from OpenTelemetryConversationSession.",
+  "datasource": { "type": "prometheus", "uid": "${prom}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic-by-name" },
+      "custom": {
+        "drawStyle": "line",
+        "lineInterpolation": "smooth",
+        "lineWidth": 2,
+        "fillOpacity": 8,
+        "showPoints": "auto",
+        "spanNulls": false,
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "s"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["min", "mean", "max", "lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "histogram_quantile(0.50, sum(rate(gen_ai_client_operation_duration_seconds_bucket[$__rate_interval])) by (le))",
+      "legendFormat": "p50",
+      "range": true
+    },
+    {
+      "refId": "B",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "histogram_quantile(0.95, sum(rate(gen_ai_client_operation_duration_seconds_bucket[$__rate_interval])) by (le))",
+      "legendFormat": "p95",
+      "range": true
+    },
+    {
+      "refId": "C",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "histogram_quantile(0.99, sum(rate(gen_ai_client_operation_duration_seconds_bucket[$__rate_interval])) by (le))",
+      "legendFormat": "p99",
+      "range": true
+    }
+  ]
+}

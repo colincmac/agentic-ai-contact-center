@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+package agents.realtimevoice.events.v1;
+
+option csharp_namespace = "Agents.AI.RealtimeVoice.Events.V1";
+

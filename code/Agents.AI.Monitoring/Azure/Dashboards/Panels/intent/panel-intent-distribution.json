@@ -1,0 +1,32 @@
+{
+  "__meta": "REUSABLE. Intent distribution from Azure Monitor Logs over IVR AppTraces call.intent customDimension (a correlation tag stamped by CallCorrelationEnrichmentProcessor). Pie/donut of detected intents — the categorical-distribution archetype (reference intent_found/not_found), retargeted at our correlation tags.",
+  "type": "piechart",
+  "title": "Detected intent distribution",
+  "description": "Distribution of detected caller intents from IVR telemetry (call.intent tag).",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "mappings": [],
+      "unit": "none"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "values": ["value", "percent"] },
+    "pieType": "donut",
+    "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+    "tooltip": { "mode": "single", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "AppTraces\n| where TimeGenerated $__timeFilter()\n| extend Intent = tostring(Properties['call.intent'])\n| where isnotempty(Intent)\n| summarize Calls = dcount(tostring(Properties['e2e.call_id'])) by Intent\n| order by Calls desc"
+      }
+    }
+  ]
+}

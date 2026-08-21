@@ -1,0 +1,25 @@
+// Transfer Success — reconcile ACS blind-transfer outcomes with Dynamics 365 conversations
+// created downstream, to catch dropped hand-offs (transfer accepted by ACS but no D365
+// conversation hydrated for the same context id).
+//
+// Window: last 24h by default; adjust the Grafana time range.
+let acsTransfers =
+    ACSCallAutomationIncomingOperations
+    | where OperationName has_any ("Transfer", "CallTransferAccepted", "CallTransferFailed")
+    | summarize
+        Accepted = countif(OperationName has "Accepted" or ResultType == "Succeeded"),
+        Failed   = countif(OperationName has "Failed" or ResultType == "Failed")
+        by CallConnectionId
+    | summarize
+        TransfersAccepted = sum(Accepted),
+        TransfersFailed   = sum(Failed);
+let d365Conversations =
+    AppTraces
+    | extend cd = parse_json(Properties)
+    | where tostring(cd["powerplatform.analytics.subscenario"]) has_any ("Classification", "RouteToQueue")
+    | summarize D365ConversationsCreated = dcount(tostring(cd["cc_contextId"]));
+acsTransfers
+| extend dummy = 1
+| join kind=fullouter (d365Conversations | extend dummy = 1) on dummy
+| project TransfersAccepted, TransfersFailed, D365ConversationsCreated,
+          HandoffGap = TransfersAccepted - D365ConversationsCreated

@@ -1,0 +1,125 @@
+id: authenticated-realtime-bank
+version: 1
+description: |
+  Voice-first ACME Bank concierge demonstrating the inline `authenticate:` plan. Privileged
+  stages declare an ordered credential sequence the executor drives on entry — identify the
+  caller by account last-4, then confirm with PIN or SMS OTP. The same plan runs under realtime
+  AI and DTMF with no per-channel authoring.
+
+basePrompt: |
+  You are the ACME Bank concierge agent. Help callers with account inquiries after
+  verifying identity. Address the caller by first name once their name is captured.
+  When you've satisfied the caller's intent, call `advance` with the matching label.
+
+commonTools:
+  - transfer-to-agent
+  - end-session
+
+initialStage: welcome
+
+stages:
+  - id: welcome
+    goal: Greet the caller, capture their name, and collect their primary intent.
+    exitWhen: Caller has stated their primary intent.
+    realtime:
+      instructions:
+        - Greet the caller warmly.
+        - Ask for their first and last name; once given, call `record-caller-name` once.
+        - Listen for the caller's intent. Don't ask for PINs or codes yourself — picking an intent triggers verification automatically.
+      examples:
+        - "Welcome to ACME Bank. Before we get started, could I get your first and last name?"
+        - "Thanks, Jordan. I can help you check your balance, activate a card, or transfer to a representative — what would you like to do?"
+      tools:
+        - record-caller-name
+    scripted:
+      ssml: |
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+          <voice name="en-US-Ava:DragonHDLatestNeural">
+            <prosody rate="-5%">
+              Welcome to ACME Bank.
+              <break time="300ms"/>
+              For account balance, press 1.
+              <break time="200ms"/>
+              To activate a card, press 2.
+              <break time="200ms"/>
+              To speak with an agent, press 0.
+            </prosody>
+          </voice>
+        </speak>
+      menu:
+        '1': { label: balance,       transition: balance }
+        '2': { label: activate-card, transition: activate_card }
+        '0': { label: agent,         transition: transfer }
+    nlu:
+      instructions: Classify the caller's intent for the welcome menu.
+      intents:
+        - { name: get_balance,    description: Caller wants account balance,  transition: balance }
+        - { name: activate_card,  description: Caller wants to activate a card, transition: activate-card }
+        - { name: transfer,       description: Caller wants a live agent,     transition: agent }
+    transitions:
+      - to: balance
+        label: balance
+        when: Caller wants to hear their balance.
+      - to: activate_card
+        label: activate-card
+        when: Caller wants to activate a card.
+      - to: transfer
+        label: agent
+        when: Caller asked for an agent.
+
+  - id: balance
+    goal: Read the verified caller their current account balance.
+    description: Verified balance self-service.
+    exitWhen: Caller has heard their balance and has no more questions.
+    # Inline auth: identify by account last-4, then confirm with PIN or SMS OTP (caller's choice).
+    authenticate:
+      - use: IdentifyLast4
+      - anyOf: [Pin, SmsOtp]
+    realtime:
+      instructions:
+        - The caller is fully verified at this point.
+        - Call `lookup-balance` and read back the available and pending amounts in a natural sentence.
+        - When the caller is done, call `advance` with target `done`.
+      tools:
+        - lookup-balance
+    transitions:
+      - to: closing
+        label: done
+
+  - id: activate_card
+    goal: Activate the caller's card after identity verification.
+    description: Card activation (requires PIN).
+    exitWhen: Card activation acknowledged and caller has no more questions.
+    # Inline auth: identify by account last-4, then confirm with PIN.
+    authenticate:
+      - use: IdentifyLast4
+      - use: Pin
+    realtime:
+      instructions:
+        - The caller is verified at this point.
+        - Confirm the last four digits of the card the caller wants to activate.
+        - For this showcase there is no real backend; politely confirm activation.
+        - When the caller is done, call `advance` with target `done`.
+    transitions:
+      - to: closing
+        label: done
+
+  - id: transfer
+    goal: Transfer the caller to a live agent.
+    realtime:
+      instructions:
+        - Acknowledge the request, set expectations on wait time, and complete the transfer.
+        - Use `transfer-to-agent` with the configured escalation number.
+      tools:
+        - transfer-to-agent
+    terminal: true
+    terminalOutcome: escalated
+
+  - id: closing
+    goal: Thank the caller and end the session.
+    realtime:
+      instructions:
+        - Thank the caller by first name and end the call politely.
+        - Call `end-session` to terminate.
+    terminal: true
+    terminalOutcome: success

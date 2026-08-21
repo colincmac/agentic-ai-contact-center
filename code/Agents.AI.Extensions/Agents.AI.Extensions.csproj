@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InjectSharedThrow>true</InjectSharedThrow>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--  Agents Framework -->
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.2.0" />
+
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-rc5" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.2.0-preview.260421.1" />
+    <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.2.0-preview.260421.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting.A2A" Version="1.2.0-preview.260421.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.2.0-preview.260421.1" />
+    <!--  Agents Framework -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
+
+    <PackageReference Include="Microsoft.Identity.Web" Version="4.14.2" />
+    <PackageReference Include="Microsoft.Identity.Web.AgentIdentities" Version="4.14.2" />
+    <PackageReference Include="Microsoft.Identity.Web.DownstreamApi" Version="4.14.2" />
+    <PackageReference Include="Microsoft.Identity.Web.GraphServiceClient" Version="4.14.2" />
+    <PackageReference Include="Microsoft.Identity.Web.MicrosoftGraph" Version="4.14.2" />
+    <PackageReference Include="Microsoft.Identity.Web.TokenCache" Version="4.14.2" />
+
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agents.AI\Agents.AI.csproj" />
+  </ItemGroup>
+</Project>

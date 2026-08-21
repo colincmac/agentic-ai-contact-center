@@ -1,0 +1,17 @@
+// Conversation Diagnostics — Dynamics 365 Contact Center conversation lifecycle events.
+// D365 conversation diagnostics export lands in the App Insights Traces table; identifiers
+// live in customDimensions. This is the raw-KQL path required for transfer/consult analysis
+// (the productized Diagnose dashboard does not cover transfer/consult).
+//
+// Parameter: set $contextId to the cc_contextId carried across the IVR→D365 transfer
+// (equals the IVR call.context_id / e2e.call_id by default).
+declare query_parameters(contextId:string = "");
+AppTraces
+| extend cd = parse_json(Properties)
+| extend ConversationId = tostring(cd["powerplatform.analytics.resource.id"]),
+         Subscenario     = tostring(cd["powerplatform.analytics.subscenario"]),
+         OmnichannelCallId = tostring(cd["omnichannel.call.id"]),
+         ContextId       = tostring(cd["cc_contextId"])
+| where ContextId == contextId and isnotempty(contextId)
+| project TimeGenerated, ConversationId, Subscenario, OmnichannelCallId, ContextId, Message, cd
+| order by TimeGenerated asc

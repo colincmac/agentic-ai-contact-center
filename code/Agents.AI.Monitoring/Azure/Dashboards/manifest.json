@@ -1,0 +1,158 @@
+{
+  "__meta": "Dashboard composition manifest for the contact-center observability platform. `assemble-dashboards.ps1` reads this to assemble each dashboard under generated/ from the shared panel library in panels/. The same panel file is referenced by multiple dashboards — this is the panel-reuse model. Panel refs are paths under panels/ without the .json extension. gridPos carries only h/w/x; the assembler computes y by flow layout.",
+  "version": 1,
+  "panelLibrary": "panels",
+  "sharedTemplating": "panels/_shared/variables.json",
+  "outputDirectory": "generated",
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "dashboards": [
+    {
+      "uid": "cc-fleet-live-ops",
+      "title": "Contact Center — Fleet Live Ops",
+      "tags": ["contact-center", "live-ops", "red"],
+      "time": { "from": "now-6h", "to": "now" },
+      "refresh": "1m",
+      "rows": [
+        {
+          "title": "Golden signals (RED)",
+          "panels": [
+            { "ref": "red/panel-ivr-availability-stat", "gridPos": { "h": 6, "w": 6, "x": 0 } },
+            { "ref": "telephony/panel-call-connect-success-rate", "gridPos": { "h": 6, "w": 6, "x": 6 } },
+            { "ref": "telephony/panel-active-calls", "gridPos": { "h": 6, "w": 12, "x": 12 } }
+          ]
+        },
+        {
+          "title": "Throughput & latency",
+          "panels": [
+            { "ref": "red/panel-ivr-request-rate", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "red/panel-ivr-latency-percentiles", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        },
+        {
+          "title": "Resilience",
+          "panels": [
+            { "ref": "strategy/panel-tier-degradations", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "quality/panel-quality-alerts", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        }
+      ]
+    },
+    {
+      "uid": "cc-telephony-acs",
+      "title": "Contact Center — Telephony & ACS",
+      "tags": ["contact-center", "acs", "telephony"],
+      "time": { "from": "now-6h", "to": "now" },
+      "refresh": "1m",
+      "rows": [
+        {
+          "title": "Connect",
+          "panels": [
+            { "ref": "telephony/panel-call-connect-success-rate", "gridPos": { "h": 6, "w": 6, "x": 0 } },
+            { "ref": "telephony/panel-active-calls", "gridPos": { "h": 6, "w": 18, "x": 6 } }
+          ]
+        },
+        {
+          "title": "ACS Call Automation",
+          "panels": [
+            { "ref": "telephony/panel-acs-incoming-operations", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "telephony/panel-acs-operation-reliability", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        },
+        {
+          "title": "Media latency",
+          "panels": [
+            { "ref": "voice/panel-time-to-first-audio", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "voice/panel-edge-dispatch-latency", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        }
+      ]
+    },
+    {
+      "uid": "cc-genai-llm",
+      "title": "Contact Center — GenAI & Realtime",
+      "tags": ["contact-center", "genai", "llm", "realtime"],
+      "time": { "from": "now-6h", "to": "now" },
+      "refresh": "1m",
+      "rows": [
+        {
+          "title": "Cost & throughput",
+          "panels": [
+            { "ref": "genai/panel-llm-token-usage", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "genai/panel-llm-operation-duration", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        },
+        {
+          "title": "Realtime turn latency",
+          "panels": [
+            { "ref": "voice/panel-time-to-first-audio", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "voice/panel-edge-dispatch-latency", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        }
+      ]
+    },
+    {
+      "uid": "cc-transfer-routing",
+      "title": "Contact Center — Transfer & Routing (D365)",
+      "tags": ["contact-center", "d365", "transfer", "routing"],
+      "time": { "from": "now-24h", "to": "now" },
+      "refresh": "",
+      "rows": [
+        {
+          "title": "Hand-off",
+          "panels": [
+            { "ref": "routing/panel-transfer-success", "gridPos": { "h": 8, "w": 8, "x": 0 } },
+            { "ref": "routing/panel-d365-subscenario", "gridPos": { "h": 8, "w": 16, "x": 8 } }
+          ]
+        },
+        {
+          "title": "Intent",
+          "panels": [
+            { "ref": "intent/panel-intent-distribution", "gridPos": { "h": 8, "w": 8, "x": 0 } }
+          ]
+        },
+        {
+          "title": "Single-call trace",
+          "panels": [
+            { "ref": "trace/panel-single-call-trace", "gridPos": { "h": 12, "w": 24, "x": 0 } }
+          ]
+        }
+      ]
+    },
+    {
+      "uid": "cc-platform-health",
+      "title": "Contact Center — Platform Health",
+      "tags": ["contact-center", "platform", "resilience"],
+      "time": { "from": "now-6h", "to": "now" },
+      "refresh": "1m",
+      "rows": [
+        {
+          "title": "Availability",
+          "panels": [
+            { "ref": "red/panel-ivr-availability-stat", "gridPos": { "h": 6, "w": 6, "x": 0 } },
+            { "ref": "telephony/panel-call-connect-success-rate", "gridPos": { "h": 6, "w": 6, "x": 6 } },
+            { "ref": "telephony/panel-active-calls", "gridPos": { "h": 6, "w": 12, "x": 12 } }
+          ]
+        },
+        {
+          "title": "Resilience",
+          "panels": [
+            { "ref": "strategy/panel-tier-degradations", "gridPos": { "h": 8, "w": 12, "x": 0 } },
+            { "ref": "quality/panel-quality-alerts", "gridPos": { "h": 8, "w": 12, "x": 12 } }
+          ]
+        }
+      ]
+    }
+  ]
+}

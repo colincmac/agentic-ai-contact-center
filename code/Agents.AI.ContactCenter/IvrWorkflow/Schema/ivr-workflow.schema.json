@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agents.ai/ivr-workflow.schema.json",
+  "title": "IVR Workflow Definition",
+  "description": "Declarative YAML schema for IVR workflows in Agents.AI.ContactCenter.",
+  "type": "object",
+  "required": [ "name", "stages" ],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1, "default": 1 },
+    "description": { "type": "string" },
+    "strategy": { "$ref": "#/$defs/strategy" },
+    "base": { "$ref": "#/$defs/base" },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stage" }
+    }
+  },
+  "$defs": {
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary": {
+          "type": "string",
+          "enum": [ "realtime", "chatCompletion", "smallLanguageModel", "nlu", "dtmf", "mixed" ],
+          "default": "realtime"
+        },
+        "fallback": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [ "realtime", "chatCompletion", "smallLanguageModel", "nlu", "dtmf" ]
+          }
+        },
+        "prewarmTiers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [ "realtime", "chatCompletion", "smallLanguageModel", "nlu", "dtmf" ]
+          }
+        },
+        "allowMidCallDegradation": { "type": "boolean", "default": true }
+      }
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": { "$ref": "#/$defs/prompt" },
+        "commonTools": { "type": "array", "items": { "type": "string" } },
+        "requiredAuthLevel": { "$ref": "#/$defs/authLevel" }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "object",
+          "required": [ "identity", "objective" ],
+          "additionalProperties": false,
+          "properties": {
+            "identity": { "type": "string" },
+            "objective": { "type": "string" },
+            "characterTraits": { "type": "string" }
+          }
+        },
+        "personality": {
+          "type": "object",
+          "required": [ "personality", "tone" ],
+          "additionalProperties": false,
+          "properties": {
+            "personality": { "type": "string" },
+            "tone": { "type": "string" },
+            "length": { "type": "string" },
+            "pacing": { "type": "string" },
+            "enthusiasm": { "type": "string" },
+            "formality": { "type": "string" },
+            "emotion": { "type": "string" },
+            "fillerWords": { "type": "string" },
+            "enforceVariety": { "type": "boolean" }
+          }
+        },
+        "context": { "type": "string" },
+        "pronunciations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "word": { "type": "string" },
+              "pronunciation": { "type": "string" },
+              "ipa": { "type": "string" }
+            },
+            "required": [ "word" ]
+          }
+        },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "escalateWhen": { "type": "array", "items": { "type": "string" } },
+            "escalationPhrases": { "type": "array", "items": { "type": "string" } },
+            "maxFailedToolAttempts": { "type": "integer", "minimum": 0 },
+            "maxNoMatchEvents": { "type": "integer", "minimum": 0 },
+            "escalationExamples": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "required": [ "id" ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "requires": { "type": "array", "items": { "$ref": "#/$defs/guard" } },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "toolRules": { "type": "array", "items": { "$ref": "#/$defs/toolRule" } }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "required": [ "id" ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "goal": { "type": "string" },
+        "requires": { "type": "array", "items": { "$ref": "#/$defs/guard" } },
+        "strategy": { "$ref": "#/$defs/strategy" },
+        "realtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "instructions": { "type": "array", "items": { "type": "string" } },
+            "examples": { "type": "array", "items": { "type": "string" } },
+            "tools": { "type": "array", "items": { "type": "string" } },
+            "toolRules": { "type": "array", "items": { "$ref": "#/$defs/toolRule" } }
+          }
+        },
+        "scripted": { "$ref": "#/$defs/scripted" },
+        "intents": { "type": "array", "items": { "$ref": "#/$defs/intent" } },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "exitWhen": { "type": "string" },
+        "onExit": { "type": "string" },
+        "terminal": { "type": "boolean" },
+        "maxRetries": { "type": "integer", "minimum": 0 },
+        "maxDuration": { "type": "string", "pattern": "^(\\d+\\.)?\\d{1,2}:\\d{2}:\\d{2}(\\.\\d+)?$" },
+        "collects": { "type": "array", "items": { "type": "string" } },
+        "requiredState": { "type": "array", "items": { "type": "string" } },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [ "to" ],
+            "additionalProperties": false,
+            "properties": {
+              "to": { "type": "string" },
+              "onIntent": { "type": "string" },
+              "onCondition": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "required": [ "name" ],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "examples": { "type": "array", "items": { "type": "string" } },
+        "nextStage": { "type": "string" },
+        "capability": { "type": "string" },
+        "confirmPrompt": { "type": "string" }
+      }
+    },
+    "scripted": {
+      "type": "object",
+      "description": "Shared scripted-tier (DTMF + NLU) configuration. Hosts common prompts and policy knobs; per-tier override blocks live under .nlu and .dtmf.",
+      "additionalProperties": false,
+      "properties": {
+        "ssmlPrompt": { "type": "string" },
+        "audioFile": { "type": "string", "format": "uri" },
+        "onErrorPrompt": { "type": "string" },
+        "onErrorAudioFile": { "type": "string", "format": "uri" },
+        "onNoInputPrompt": { "type": "string" },
+        "onNoInputAudioFile": { "type": "string", "format": "uri" },
+        "onHandoffPrompt": { "type": "string" },
+        "onHandoffAudioFile": { "type": "string", "format": "uri" },
+        "onConfirmPrompt": { "type": "string" },
+        "onConfirmAudioFile": { "type": "string", "format": "uri" },
+        "maxNoMatch": { "type": "integer", "minimum": 0 },
+        "maxNoInput": { "type": "integer", "minimum": 0 },
+        "noInputTimeoutMs": { "type": "integer", "minimum": 0 },
+        "confidenceThreshold": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "examples": { "type": "array", "items": { "type": "string" } },
+        "nlu": { "$ref": "#/$defs/nlu" },
+        "dtmf": { "$ref": "#/$defs/dtmf" }
+      }
+    },
+    "dtmf": {
+      "type": "object",
+      "description": "DTMF-tier override sub-block under scripted: tier-specific entry prompt plus menu options and digit-collection block.",
+      "additionalProperties": false,
+      "properties": {
+        "ssmlPrompt": { "type": "string" },
+        "audioFile": { "type": "string", "format": "uri" },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [ "digit", "label" ],
+            "additionalProperties": false,
+            "properties": {
+              "digit": { "type": "string", "pattern": "^[0-9*#]$" },
+              "label": { "type": "string" },
+              "intent": { "type": "string" },
+              "capability": { "type": "string" },
+              "nextStage": { "type": "string" },
+              "tool": { "type": "string" },
+              "args": { "type": "object", "additionalProperties": true },
+              "onFailurePrompt": { "type": "string" },
+              "onFailureAudioFile": { "type": "string", "format": "uri" }
+            }
+          }
+        },
+        "collect": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minDigits": { "type": "integer", "minimum": 1 },
+            "maxDigits": { "type": "integer", "minimum": 1 },
+            "terminator": { "type": "string", "pattern": "^[0-9*#]$" },
+            "interDigitTimeoutMs": { "type": "integer", "minimum": 0 },
+            "validator": { "type": "string" },
+            "digitsParameterName": { "type": "string" },
+            "args": { "type": "object", "additionalProperties": true },
+            "collectedStateKey": { "type": "string" },
+            "onValidNextStage": { "type": "string" },
+            "onInvalidPrompt": { "type": "string" },
+            "onInvalidAudioFile": { "type": "string", "format": "uri" }
+          }
+        }
+      }
+    },
+    "guard": {
+      "type": "object",
+      "required": [ "type" ],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "level": { "$ref": "#/$defs/authLevel" },
+        "key": { "type": "string" },
+        "keys": { "type": "array", "items": { "type": "string" } },
+        "stage": { "type": "string" },
+        "predicate": { "type": "string" },
+        "message": { "type": "string" },
+        "args": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "nlu": {
+      "type": "object",
+      "description": "NLU-tier override sub-block under scripted: tier-specific entry prompt and optional stage-scoped intents.",
+      "additionalProperties": false,
+      "properties": {
+        "ssmlPrompt": { "type": "string" },
+        "audioFile": { "type": "string", "format": "uri" },
+        "intents": { "type": "array", "items": { "$ref": "#/$defs/intent" } }
+      }
+    },
+    "toolRule": {
+      "type": "object",
+      "required": [ "name", "useWhen" ],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "useWhen": { "type": "string" },
+        "doNotUseWhen": { "type": "string" },
+        "behavior": { "type": "string", "enum": [ "proactive", "confirmationFirst", "preambleFirst" ] },
+        "preamblePhrases": { "type": "array", "items": { "type": "string" } },
+        "confirmationPhrase": { "type": "string" }
+      }
+    },
+    "authLevel": {
+      "type": "string",
+      "enum": [ "none", "phoneRecognized", "accountVerified", "securityQuestionPassed", "fullyAuthenticated" ]
+    }
+  }
+}

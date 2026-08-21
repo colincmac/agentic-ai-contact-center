@@ -1,0 +1,45 @@
+{
+  "__meta": "REUSABLE. Call-connect success rate from Managed Prometheus contact_center.call.* counters. Stat, percentunit, thresholds red / yellow@0.95 / green@0.99 — the success-rate-stat archetype from the reference dashboard (panel_call_connect_success_rate), retargeted at our CallingTelemetry counters.",
+  "type": "stat",
+  "title": "Call-connect success rate",
+  "description": "started / (started + faulted) call sessions over the window.",
+  "datasource": { "type": "prometheus", "uid": "${prom}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "thresholds" },
+      "decimals": 3,
+      "mappings": [],
+      "min": 0,
+      "max": 1,
+      "noValue": "N/A",
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "red", "value": null },
+          { "color": "yellow", "value": 0.95 },
+          { "color": "green", "value": 0.99 }
+        ]
+      },
+      "unit": "percentunit"
+    },
+    "overrides": []
+  },
+  "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+    "textMode": "auto"
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "sum(increase(contact_center_call_started_total[$__range])) / clamp_min(sum(increase(contact_center_call_started_total[$__range])) + sum(increase(contact_center_call_faulted_total[$__range])), 1)",
+      "legendFormat": "success rate",
+      "range": true
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "__meta": "REUSABLE. Edge dispatch latency p95 from Managed Prometheus histogram contact_center.edge.dispatch.latency (ms), split by edge kind. The realtime-turn latency archetype (reference s2s/turn latency), retargeted at CallingTelemetry dispatch latency.",
+  "type": "timeseries",
+  "title": "Edge dispatch latency (p95)",
+  "description": "Per-directive dispatch latency p95 by edge, from CallingTelemetry.",
+  "datasource": { "type": "prometheus", "uid": "${prom}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "line",
+        "lineInterpolation": "smooth",
+        "lineWidth": 2,
+        "fillOpacity": 8,
+        "showPoints": "auto",
+        "spanNulls": false,
+        "axisPlacement": "auto",
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "ms"
+    },
+    "overrides": []
+  },
+  "options": {
+    "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "prometheus", "uid": "${prom}" },
+      "editorMode": "code",
+      "expr": "histogram_quantile(0.95, sum(rate(contact_center_edge_dispatch_latency_milliseconds_bucket[$__rate_interval])) by (le, edge))",
+      "legendFormat": "{{edge}} p95",
+      "range": true
+    }
+  ]
+}

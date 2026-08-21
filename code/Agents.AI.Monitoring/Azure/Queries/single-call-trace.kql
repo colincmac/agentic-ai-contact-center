@@ -1,0 +1,47 @@
+// Single-Call Trace — reconstruct one contact-center call as a single ordered timeline
+// across ACS (Log Analytics), the IVR app (App Insights via Azure Monitor OTel), and
+// Dynamics 365 conversation diagnostics (App Insights Traces).
+//
+// Parameter: set $e2e to the canonical e2e.call_id (UUIDv7) you want to trace.
+// Grafana: expose $e2e as a dashboard variable; this file is the panel query.
+//
+// Deterministic joins:
+//   IVR spans      -> customDimensions['e2e.call_id']       == $e2e
+//   ACS logs       -> CallConnectionId / CorrelationId       == IVR-observed acs ids
+//   D365 traces    -> customDimensions['cc_contextId']       == call.context_id (== $e2e by default)
+declare query_parameters(e2e:string = "");
+let ivr =
+    union AppDependencies, AppRequests, AppTraces
+    | where tostring(Properties["e2e.call_id"]) == e2e
+    | project TimestampUtc = TimeGenerated,
+              Boundary = "IVR",
+              Source = ItemType,
+              Operation = coalesce(column_ifexists("Name", ""), column_ifexists("Message", "")),
+              CallConnectionId = tostring(Properties["acs.call_connection_id"]),
+              ContextId = tostring(Properties["call.context_id"]),
+              Detail = Properties;
+let connIds = toscalar(ivr | where isnotempty(CallConnectionId) | summarize make_set(CallConnectionId));
+let ctxId = toscalar(ivr | where isnotempty(ContextId) | take 1 | project ContextId);
+let acs =
+    ACSCallAutomationIncomingOperations
+    | where CallConnectionId in (connIds)
+    | project TimestampUtc = TimeGenerated,
+              Boundary = "ACS",
+              Source = "CallAutomation",
+              Operation = OperationName,
+              CallConnectionId,
+              ContextId = "",
+              Detail = pack_all();
+let d365 =
+    AppTraces
+    | extend cd = parse_json(Properties)
+    | where tostring(cd["cc_contextId"]) == ctxId and isnotempty(ctxId)
+    | project TimestampUtc = TimeGenerated,
+              Boundary = "D365",
+              Source = "ConversationDiagnostics",
+              Operation = tostring(cd["powerplatform.analytics.subscenario"]),
+              CallConnectionId = "",
+              ContextId = tostring(cd["cc_contextId"]),
+              Detail = cd;
+union ivr, acs, d365
+| order by TimestampUtc asc

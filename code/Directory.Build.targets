@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <ReadMePath>$(MSBuildProjectDirectory)\README.md</ReadMePath>
+    <ReadMeExists Condition="Exists('$(ReadMePath)')">true</ReadMeExists>
+    <PackageReadmeFile Condition="'$(PackageReadmeFile)' == '' And '$(ReadMeExists)' == 'true'">README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <PropertyGroup>
+    <NoWarn>
+      $(NoWarn);SKEXP0001,SKEXP0010,SKEXP0040,SKEXP0050,SKEXP0060,SKEXP0080,SKEXP0081,SKEXP0101,SKEXP0110,OPENAI001,OPENAI002,MEAI001
+    </NoWarn>
+  </PropertyGroup>
+</Project>

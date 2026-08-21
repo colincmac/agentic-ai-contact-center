@@ -1,0 +1,10 @@
+// Routing / Queue — Dynamics 365 routing-stage distribution and non-assignment reasons,
+// grouped by subscenario, from conversation-diagnostics telemetry in App Insights Traces.
+AppTraces
+| where TimeGenerated > ago(24h)
+| extend cd = parse_json(Properties)
+| extend Subscenario = tostring(cd["powerplatform.analytics.subscenario"]),
+         Queue = tostring(cd["cc_workstream"])
+| where isnotempty(Subscenario)
+| summarize Events = count() by Subscenario, bin(TimeGenerated, 15m)
+| order by TimeGenerated asc

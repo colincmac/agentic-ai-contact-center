@@ -1,0 +1,48 @@
+{
+  "__meta": "REUSABLE. IVR request rate + failures (RED: Rate/Errors). Azure Monitor Logs over App Insights AppRequests. Bars for volume with a hidden 'Requests Total' reference series — the count-volume archetype from the reference dashboard's api-requests panels.",
+  "type": "timeseries",
+  "title": "IVR — Request rate & failures",
+  "description": "Requests and failed requests per minute for the IVR app, from App Insights AppRequests.",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "palette-classic" },
+      "custom": {
+        "drawStyle": "bars",
+        "fillOpacity": 25,
+        "lineWidth": 1,
+        "lineInterpolation": "linear",
+        "pointSize": 5,
+        "showPoints": "auto",
+        "spanNulls": false,
+        "axisPlacement": "auto",
+        "stacking": { "group": "A", "mode": "none" },
+        "thresholdsStyle": { "mode": "off" }
+      },
+      "mappings": [],
+      "min": 0,
+      "unit": "none"
+    },
+    "overrides": [
+      {
+        "matcher": { "id": "byName", "options": "Failures" },
+        "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ]
+      }
+    ]
+  },
+  "options": {
+    "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+    "tooltip": { "mode": "multi", "sort": "desc" }
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "AppRequests\n| where TimeGenerated $__timeFilter()\n| summarize Requests = count(), Failures = countif(Success == false) by bin(TimeGenerated, 1m)\n| order by TimeGenerated asc"
+      }
+    }
+  ]
+}

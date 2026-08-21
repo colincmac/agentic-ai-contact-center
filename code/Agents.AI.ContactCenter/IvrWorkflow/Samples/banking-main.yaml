@@ -1,0 +1,211 @@
+name: banking-main
+version: 1
+description: Sample bilingual banking IVR with realtime-first interaction and DTMF fallback.
+
+strategy:
+  primary: realtime
+  fallback:
+    - nlu
+    - dtmf
+  prewarmTiers:
+    - dtmf
+  allowMidCallDegradation: true
+
+base:
+  prompt:
+    role:
+      identity: "Avery, the Contoso Bank assistant"
+      objective: "Help callers complete banking tasks quickly while protecting account security."
+      characterTraits: "Polite, calm, succinct."
+    personality:
+      personality: "Friendly, professional, never rushed"
+      tone: "Warm but precise"
+      pacing: "Conversational"
+      length: "Two sentences or fewer per turn"
+      fillerWords: "Avoid"
+      enforceVariety: true
+    context: |
+      You are an automated voice assistant for Contoso Bank. You must never read full
+      account numbers aloud. Mask sensitive data (last 4 digits only).
+    pronunciations:
+      - { word: Contoso, pronunciation: "kon-TOH-soh" }
+      - { word: IVR, ipa: "ˈaɪˌviːˈɑːr" }
+    safety:
+      escalateWhen:
+        - "Caller asks for a human"
+        - "Caller mentions fraud or stolen card"
+      escalationPhrases:
+        - "Let me transfer you to a specialist."
+      maxFailedToolAttempts: 2
+      maxNoMatchEvents: 3
+  commonTools:
+    - transfer-to-human
+    - end-session
+  requiredAuthLevel: none
+
+capabilities:
+  - id: balance.lookup
+    description: "Read the caller's current account balance."
+    requires:
+      - type: auth
+        level: aniMatch
+    tools:
+      - balance-lookup
+    toolRules:
+      - name: balance-lookup
+        useWhen: "Caller asks for current balance after they are authenticated."
+        doNotUseWhen: "Caller is not yet authenticated."
+        behavior: confirmationFirst
+        confirmationPhrase: "Just to confirm, you'd like your current balance?"
+
+  - id: card.activate
+    description: "Activate a newly issued debit card."
+    requires:
+      - type: auth
+        level: multiFactor
+    tools:
+      - activate-card
+
+  - id: transfer-to-human
+    description: "Escalate the caller to a live agent."
+    tools:
+      - transfer-to-human
+
+stages:
+  - id: greeting
+    goal: "Greet the caller and capture their primary intent."
+    realtime:
+      instructions:
+        - "Welcome the caller by name when their phone number is recognized."
+        - "Ask an open-ended question about what they need help with."
+      examples:
+        - "Hi, thanks for calling Contoso Bank. What can I help you with today?"
+    scripted:
+      onErrorPrompt: "Sorry, I didn't catch that. Press 1 for balance, 2 to activate a card, or 0 for an agent."
+      dtmf:
+        ssmlPrompt: |
+          <speak>Thanks for calling Contoso Bank.
+          Press 1 for your balance, press 2 to activate a card, or press 0 for an agent.</speak>
+        options:
+          - { digit: '1', label: Balance,         intent: balance,         nextStage: verify-account }
+          - { digit: '2', label: ActivateCard,    intent: activate-card,   nextStage: verify-identity }
+          - { digit: '0', label: HumanAgent,      tool: transfer-to-human }
+    intents:
+      - name: balance
+        examples: ["balance", "check my balance", "what is my balance"]
+        nextStage: verify-account
+      - name: activate-card
+        examples: ["activate my card", "card activation", "new card"]
+        nextStage: verify-identity
+      - name: agent
+        examples: ["agent", "human", "representative"]
+        capability: transfer-to-human
+    exitWhen: "Caller has selected an intent."
+
+  - id: verify-account
+    goal: "Collect and verify the caller's account number."
+    requires:
+      - type: previousStage
+        stage: greeting
+    realtime:
+      instructions:
+        - "Ask the caller to read their 10-digit account number."
+        - "Confirm only the last 4 digits when you echo it back."
+      examples:
+        - "Sure, I can help. Could you read me your account number?"
+      tools:
+        - verify-account-number
+      toolRules:
+        - name: verify-account-number
+          useWhen: "Caller has provided a numeric account identifier."
+          behavior: preamblefirst
+          preamblePhrases:
+            - "Looking that up now."
+            - "One moment while I verify."
+    scripted:
+      onErrorPrompt: "That didn't look right. Please try again, account number followed by the pound key."
+      dtmf:
+        ssmlPrompt: "Please enter your 10-digit account number followed by the pound key."
+        collect:
+          minDigits: 10
+          maxDigits: 10
+          terminator: '#'
+          interDigitTimeoutMs: 5000
+          validator: verify-account-number
+          digitsParameterName: accountNumber
+          collectedStateKey: accountNumber
+          onValidNextStage: route
+          onInvalidPrompt: "I couldn't verify that account number. Let's try once more."
+    collects:
+      - accountNumber
+    maxRetries: 3
+    onExit: route
+
+  - id: verify-identity
+    goal: "Verify caller identity via OTP for higher-risk actions."
+    requires:
+      - type: previousStage
+        stage: greeting
+      - type: state
+        keys: [ accountNumber ]
+    realtime:
+      instructions:
+        - "Send the OTP, then ask the caller for the 6-digit code."
+      tools:
+        - send-otp
+        - verify-otp
+    scripted:
+      dtmf:
+        ssmlPrompt: "We just sent a 6-digit code to your phone. Please enter it followed by the pound key."
+        collect:
+          minDigits: 6
+          maxDigits: 6
+          terminator: '#'
+          validator: verify-otp
+          digitsParameterName: otpCode
+          collectedStateKey: otpVerified
+          onValidNextStage: route
+    requiredState:
+      - accountNumber
+    onExit: route
+
+  - id: route
+    goal: "Dispatch to the appropriate capability based on the caller's intent."
+    capabilities:
+      - balance.lookup
+      - card.activate
+    intents:
+      - name: balance
+        nextStage: fulfill-balance
+      - name: activate-card
+        nextStage: fulfill-card-activation
+
+  - id: fulfill-balance
+    goal: "Read the caller's balance and offer related actions."
+    capabilities: [ balance.lookup ]
+    realtime:
+      instructions:
+        - "Use balance-lookup to fetch the balance, then read it aloud rounded to the nearest dollar."
+        - "Offer to repeat or to do anything else."
+    transitions:
+      - to: wrap-up
+        onCondition: "Caller has no further requests."
+
+  - id: fulfill-card-activation
+    goal: "Activate the caller's card and confirm success."
+    capabilities: [ card.activate ]
+    realtime:
+      instructions:
+        - "Use activate-card with the caller's account number."
+        - "Confirm the activation by reading only the last 4 digits of the card."
+    transitions:
+      - to: wrap-up
+
+  - id: wrap-up
+    goal: "Politely end the call once the caller's needs are met."
+    terminal: true
+    realtime:
+      instructions:
+        - "Thank the caller, summarize what was done, and end the session."
+      tools:
+        - end-session

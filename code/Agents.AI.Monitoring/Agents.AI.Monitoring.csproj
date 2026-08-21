@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InjectSharedThrow>true</InjectSharedThrow>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- OpenTelemetry span enrichment + DI hooks (brings OpenTelemetry, .Api, hosting + DI abstractions transitively). -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <!-- Live correlation store backing (Azure Managed Redis). -->
+    <PackageReference Include="StackExchange.Redis" Version="2.13.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Deployable observability assets (KQL queries + Grafana dashboards) shipped with the library. -->
+    <EmbeddedResource Include="Azure\Queries\*.kql" />
+    <!-- Recursive: the E2E model, the manifest, the reusable panel library, and the composed dashboards. -->
+    <EmbeddedResource Include="Azure\Dashboards\**\*.json" />
+    <EmbeddedResource Include="Dynamics\Queries\*.kql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Foundry\**" />
+    <EmbeddedResource Remove="Foundry\**" />
+    <None Remove="Foundry\**" />
+  </ItemGroup>
+
+</Project>

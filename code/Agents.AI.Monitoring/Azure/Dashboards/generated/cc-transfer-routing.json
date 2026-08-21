@@ -1,0 +1,468 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Hand-off",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Transfer success — ACS accepted vs D365 conversations",
+      "description": "Accepted transfers, failed transfers, D365 conversations created, and the hand-off gap (accepted − created). A positive gap means context was lost across the IVR → D365 boundary.",
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TransfersAccepted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "D365ConversationsCreated"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "${ds}"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "let acsTransfers = ACSCallAutomationIncomingOperations\n| where TimeGenerated $__timeFilter()\n| where OperationName has_any ('Transfer','CallTransferAccepted','CallTransferFailed')\n| summarize TransfersAccepted = countif(OperationName has 'Accepted' or ResultType == 'Succeeded'), TransfersFailed = countif(OperationName has 'Failed' or ResultType == 'Failed');\nlet d365 = AppTraces\n| where TimeGenerated $__timeFilter()\n| extend cd = parse_json(Properties)\n| where tostring(cd['powerplatform.analytics.subscenario']) has_any ('Classification','RouteToQueue')\n| summarize D365ConversationsCreated = dcount(tostring(cd['cc_contextId']));\nacsTransfers | extend d = 1 | join kind=fullouter (d365 | extend d = 1) on d\n| project TransfersAccepted, TransfersFailed, D365ConversationsCreated, HandoffGap = TransfersAccepted - D365ConversationsCreated"
+          }
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Routing / queue — D365 subscenario distribution",
+      "description": "Dynamics 365 routing-stage distribution over time, from conversation-diagnostics telemetry.",
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 40,
+            "lineWidth": 1,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "showPoints": "never",
+            "axisPlacement": "auto",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "${ds}"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "AppTraces\n| where TimeGenerated $__timeFilter()\n| extend cd = parse_json(Properties)\n| extend Subscenario = tostring(cd['powerplatform.analytics.subscenario'])\n| where isnotempty(Subscenario)\n| summarize Events = count() by Subscenario, bin(TimeGenerated, 15m)\n| order by TimeGenerated asc"
+          }
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 1
+      }
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Intent",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "type": "piechart",
+      "title": "Detected intent distribution",
+      "description": "Distribution of detected caller intents from IVR telemetry (call.intent tag).",
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "${ds}"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "AppTraces\n| where TimeGenerated $__timeFilter()\n| extend Intent = tostring(Properties['call.intent'])\n| where isnotempty(Intent)\n| summarize Calls = dcount(tostring(Properties['e2e.call_id'])) by Intent\n| order by Calls desc"
+          }
+        }
+      ],
+      "id": 5,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 10
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Single-call trace",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Single-call trace (e2e.call_id = $e2e)",
+      "description": "Everything that happened on call $e2e, in order, across ACS, the IVR, and D365. Set the $e2e dashboard variable to a canonical e2e.call_id.",
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Boundary"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "TimestampUtc",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "${ds}"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resource": "${law}",
+            "query": "declare query_parameters(e2e:string = '${e2e}');\nlet ivr = union AppDependencies, AppRequests, AppTraces\n| where tostring(Properties['e2e.call_id']) == e2e\n| project TimestampUtc = TimeGenerated, Boundary = 'IVR', Source = ItemType, Operation = coalesce(column_ifexists('Name',''), column_ifexists('Message','')), CallConnectionId = tostring(Properties['acs.call_connection_id']), ContextId = tostring(Properties['call.context_id']);\nlet connIds = toscalar(ivr | where isnotempty(CallConnectionId) | summarize make_set(CallConnectionId));\nlet ctxId = toscalar(ivr | where isnotempty(ContextId) | take 1 | project ContextId);\nlet acs = ACSCallAutomationIncomingOperations | where CallConnectionId in (connIds) | project TimestampUtc = TimeGenerated, Boundary = 'ACS', Source = 'CallAutomation', Operation = OperationName, CallConnectionId, ContextId = '';\nlet d365 = AppTraces | extend cd = parse_json(Properties) | where tostring(cd['cc_contextId']) == ctxId and isnotempty(ctxId) | project TimestampUtc = TimeGenerated, Boundary = 'D365', Source = 'ConversationDiagnostics', Operation = tostring(cd['powerplatform.analytics.subscenario']), CallConnectionId = '', ContextId = tostring(cd['cc_contextId']);\nunion ivr, acs, d365 | order by TimestampUtc asc"
+          }
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      }
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "contact-center",
+    "d365",
+    "transfer",
+    "routing"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "type": "datasource",
+        "label": "Azure Monitor",
+        "query": "grafana-azure-monitor-datasource",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "refresh": 1
+      },
+      {
+        "name": "prom",
+        "type": "datasource",
+        "label": "Managed Prometheus",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "refresh": 1
+      },
+      {
+        "name": "law",
+        "type": "textbox",
+        "label": "Log Analytics workspace resource id",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "query": "",
+        "hide": 0
+      },
+      {
+        "name": "e2e",
+        "type": "textbox",
+        "label": "e2e.call_id",
+        "description": "Canonical end-to-end call id. Leave blank for fleet views; set to trace a single call.",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "query": "",
+        "hide": 0
+      },
+      {
+        "name": "ns",
+        "type": "textbox",
+        "label": "Kubernetes namespace",
+        "description": "Namespace/regex for cAdvisor resource panels. Blank matches all.",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "query": ".*",
+        "hide": 0
+      },
+      {
+        "name": "org",
+        "type": "textbox",
+        "label": "Organization / workstream",
+        "description": "Optional filter carried on telemetry as d365.workstream / call.tenant. Blank matches all.",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "query": ".*",
+        "hide": 0
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Contact Center — Transfer & Routing (D365)",
+  "uid": "cc-transfer-routing",
+  "version": 1
+}

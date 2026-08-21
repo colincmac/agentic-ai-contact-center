@@ -1,0 +1,55 @@
+name: utility-bill-pay
+version: 1
+description: Pure DTMF utility bill pay flow for low-AI capacity scenarios.
+
+strategy:
+  primary: dtmf
+  allowMidCallDegradation: false
+
+base:
+  commonTools:
+    - transfer-to-human
+    - end-session
+
+stages:
+  - id: menu
+    goal: "Primary bill-pay menu."
+    scripted:
+      onErrorPrompt: "Sorry, please press 1, 2, or 0."
+      dtmf:
+        ssmlPrompt: "Welcome to bill pay. Press 1 for electric, 2 for water, 0 for an agent."
+        options:
+          - { digit: '1', label: Electric, nextStage: collect-account }
+          - { digit: '2', label: Water,    nextStage: collect-account }
+          - { digit: '0', label: Agent,    tool: transfer-to-human }
+
+  - id: collect-account
+    goal: "Collect the customer account number."
+    scripted:
+      dtmf:
+        ssmlPrompt: "Please enter your 8-digit account number followed by the pound key."
+        collect:
+          minDigits: 8
+          maxDigits: 8
+          terminator: '#'
+          collectedStateKey: accountNumber
+          onValidNextStage: confirm
+
+  - id: confirm
+    goal: "Read back the account number and confirm payment intent."
+    requires:
+      - type: state
+        key: accountNumber
+    scripted:
+      dtmf:
+        ssmlPrompt: "Press 1 to confirm payment of your bill, or 0 to start over."
+        options:
+          - { digit: '1', label: Confirm, nextStage: complete }
+          - { digit: '0', label: Restart, nextStage: menu }
+
+  - id: complete
+    goal: "Confirm completion and end the call."
+    terminal: true
+    scripted:
+      dtmf:
+        ssmlPrompt: "Thank you. Your payment has been scheduled. Goodbye."

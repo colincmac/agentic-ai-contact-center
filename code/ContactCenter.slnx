@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+  </Folder>
+  <Project Path="Agents.AI.ContactCenter/Agents.AI.ContactCenter.csproj" />
+  <Project Path="Agents.AI.Extensions/Agents.AI.Extensions.csproj" />
+  <Project Path="Agents.AI.Monitoring/Agents.AI.Monitoring.csproj" />
+  <Project Path="Agents.AI/Agents.AI.csproj" />
+  <Project Path="Agents.AI.Sandbox/Agents.AI.Sandbox.csproj" />
+  <Project Path="ContactCenter.AppHost/ContactCenter.AppHost.csproj" />
+  <Project Path="ContactCenter.ServiceDefaults/ContactCenter.ServiceDefaults.csproj" />
+  <Project Path="Extensions.AI/Extensions.AI.csproj" />
+</Solution>

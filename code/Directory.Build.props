@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <NoWarn>$(NoWarn);MEAI001;</NoWarn>
+
+  </PropertyGroup>
+  <ItemGroup Condition="'$(InjectSharedThrow)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)\Shared\Throw\*.cs" LinkBase="Shared\Throw" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(InjectHostingExtensions)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)\Shared\HostingExtensions\*.cs" LinkBase="Shared\HostingExtensions" />
+    
+  </ItemGroup>
+</Project>

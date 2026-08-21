@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package agents.intent.v1;
+
+// gRPC SLM intent-classification service consumed by the voice-edge for
+// Tier 2/3 NLU fallback. The per-pod ceiling and KEDA scaling on the GPU
+// node pool live in docs/architecture/aks-topology.md.
+
+// Single utterance to classify against the workflow step's allowed intents.
+// Sent as a stream so partial-utterance scoring is possible without forcing
+// a new RPC for every chunk; for the showcase the server processes a single
+// utterance per stream and closes.
+message Utterance {
+  // Workflow / session correlation id.  Optional but useful for tracing.
+  string session_id = 1;
+
+  // Final or partial transcription text.
+  string text = 2;
+
+  // Optional language hint (BCP-47).  Default "en-US".
+  string language = 3;
+
+  // The set of intent names that are valid for the current workflow step.
+  // When empty the server must return Intent.None.
+  repeated string valid_intents = 4;
+
+  // True when the caller considers this utterance complete and wants a final
+  // classification.  Partials may be sent with this false; the server may
+  // emit confidence-bearing partial scores before the final.
+  bool is_final = 5;
+}
+
+// Classification verdict for an Utterance.  The server may emit multiple
+// IntentScore messages per utterance (partials + final).
+message IntentScore {
+  // Workflow / session correlation id, echoed from the matching Utterance.
+  string session_id = 1;
+
+  // Empty string when no intent matched.
+  string intent_name = 2;
+
+  // 0.0-1.0; clients should compare against their own threshold per step.
+  double confidence = 3;
+
+  // True for the final classification for this utterance.  Clients should
+  // treat the most recent message with is_final=true as authoritative.
+  bool is_final = 4;
+}
+
+// SLM-backed intent classifier.  The showcase implementation delegates to
+// the in-process StubKeywordIntentClassifier; a Phi-4-mini / ONNX runtime
+// host plugs in behind the same contract without any client change.
+service IntentClassification {
+  rpc Classify(stream Utterance) returns (stream IntentScore);
+}

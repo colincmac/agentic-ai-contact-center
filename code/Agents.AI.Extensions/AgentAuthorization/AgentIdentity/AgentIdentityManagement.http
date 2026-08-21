@@ -1,0 +1,52 @@
+@AgentOrchestrator_HostAddress = https://localhost:7170
+@TenantName=M365MCP14134780.OnMicrosoft.com
+@AgentIdentity=RESULT_FROM_FIRST_REQUEST
+@AgentIdentityId=7fc8a7b7-aa50-4a78-abb3-d53de15bdaab
+@AgentUserName = ContactCenterAgent
+@AgentUserDisplayName = Contact Center Agent
+@AgentPrincipalDisplayName = Contact Center Agent 2
+
+POST {{AgentOrchestrator_HostAddress}}/identity/agentidentity?agentIdentityName=agent%20identity1&agentUserIdentityUpn={{AgentUserName}}@{{TenantName}}
+Accept: application/json
+Content-Type: application/json
+###
+POST {{AgentOrchestrator_HostAddress}}/identity/agentidentity
+Accept: application/json
+Content-Type: application/json
+{
+ "displayName" : "{{AgentPrincipalDisplayName}}",
+ "agentIdentityBlueprintId": "02f89f3c-8a5f-44a0-b4fc-0849f03a508e",
+ "sponsors@odata.bind":
+ [
+     "https://graph.microsoft.com/v1.0/users/3c8db315-ff11-49d8-b844-b37b277ed5d6"
+ ],
+  "owners@odata.bind":
+ [
+     "https://graph.microsoft.com/v1.0/users/3c8db315-ff11-49d8-b844-b37b277ed5d6"
+ ]
+
+}
+
+###
+POST {{AgentOrchestrator_HostAddress}}/identity/agentidentity/{{AgentIdentityId}}/userIdentity
+Accept: application/json
+Content-Type: application/json
+{
+ "userPrincipalName": "{{AgentUserName}}@{{TenantName}}",
+ "displayName" : "{{AgentUserDisplayName}}",
+ "mailNickname": "{{AgentUserDisplayName}}"
+}
+
+
+###
+POST {{AgentOrchestrator_HostAddress}}/api/customerservice/process
+Accept: application/json
+Content-Type: application/json
+
+{
+ "OrderId": "12345",
+ "UserUpn" : "{{AgentUserName}}@{{TenantName}}",
+ "AgentIdentity": "{{AgentIdentity}}"
+}
+
+###

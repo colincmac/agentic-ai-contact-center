@@ -1,0 +1,10 @@
+.venv
+.pytest_cache
+build
+obj
+__pycache__
+*.egg-info
+embeddings
+linux-venv
+pretrained_models
+pretrained_models/**/*

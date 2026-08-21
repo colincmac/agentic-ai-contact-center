@@ -1,0 +1,14 @@
+// Live Ops — RED-style health for the IVR from OpenTelemetry request telemetry
+// (App Insights via Azure Monitor). Rate / Errors / Duration over the selected window,
+// binned for a time-series panel.
+AppRequests
+| where TimeGenerated > ago(1h)
+| summarize
+    Requests = count(),
+    Failures = countif(Success == false),
+    P50Ms = percentile(DurationMs, 50),
+    P95Ms = percentile(DurationMs, 95),
+    P99Ms = percentile(DurationMs, 99)
+    by bin(TimeGenerated, 1m)
+| extend ErrorRate = iff(Requests == 0, 0.0, todouble(Failures) / Requests)
+| order by TimeGenerated asc

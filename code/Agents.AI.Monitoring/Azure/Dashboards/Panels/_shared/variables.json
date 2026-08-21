@@ -1,0 +1,62 @@
+{
+  "__meta": "Shared Grafana template variables injected into every composed dashboard by assemble-dashboards.ps1. Keeps panels portable: any panel that references ${ds}/${prom}/${law}/${e2e}/${ns}/${org} drops into any dashboard because these variables always exist.",
+  "list": [
+    {
+      "name": "ds",
+      "type": "datasource",
+      "label": "Azure Monitor",
+      "query": "grafana-azure-monitor-datasource",
+      "current": {},
+      "hide": 0,
+      "includeAll": false,
+      "multi": false,
+      "refresh": 1
+    },
+    {
+      "name": "prom",
+      "type": "datasource",
+      "label": "Managed Prometheus",
+      "query": "prometheus",
+      "current": {},
+      "hide": 0,
+      "includeAll": false,
+      "multi": false,
+      "refresh": 1
+    },
+    {
+      "name": "law",
+      "type": "textbox",
+      "label": "Log Analytics workspace resource id",
+      "current": { "text": "", "value": "" },
+      "query": "",
+      "hide": 0
+    },
+    {
+      "name": "e2e",
+      "type": "textbox",
+      "label": "e2e.call_id",
+      "description": "Canonical end-to-end call id. Leave blank for fleet views; set to trace a single call.",
+      "current": { "text": "", "value": "" },
+      "query": "",
+      "hide": 0
+    },
+    {
+      "name": "ns",
+      "type": "textbox",
+      "label": "Kubernetes namespace",
+      "description": "Namespace/regex for cAdvisor resource panels. Blank matches all.",
+      "current": { "text": ".*", "value": ".*" },
+      "query": ".*",
+      "hide": 0
+    },
+    {
+      "name": "org",
+      "type": "textbox",
+      "label": "Organization / workstream",
+      "description": "Optional filter carried on telemetry as d365.workstream / call.tenant. Blank matches all.",
+      "current": { "text": ".*", "value": ".*" },
+      "query": ".*",
+      "hide": 0
+    }
+  ]
+}

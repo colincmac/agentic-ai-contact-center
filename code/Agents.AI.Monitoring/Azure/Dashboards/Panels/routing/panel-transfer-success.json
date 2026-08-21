@@ -1,0 +1,50 @@
+{
+  "__meta": "REUSABLE. Transfer success / hand-off gap. Azure Monitor Logs join of ACS transfer outcomes vs D365 conversations created (reuses Azure/Queries/transfer-success.kql). Stat with HandoffGap threshold — the transfer-reconciliation panel from the E2E pane, promoted to a shared panel.",
+  "type": "stat",
+  "title": "Transfer success — ACS accepted vs D365 conversations",
+  "description": "Accepted transfers, failed transfers, D365 conversations created, and the hand-off gap (accepted − created). A positive gap means context was lost across the IVR → D365 boundary.",
+  "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+  "fieldConfig": {
+    "defaults": {
+      "color": { "mode": "thresholds" },
+      "mappings": [],
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "green", "value": null },
+          { "color": "red", "value": 1 }
+        ]
+      },
+      "unit": "none"
+    },
+    "overrides": [
+      {
+        "matcher": { "id": "byName", "options": "TransfersAccepted" },
+        "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } } ]
+      },
+      {
+        "matcher": { "id": "byName", "options": "D365ConversationsCreated" },
+        "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } } ]
+      }
+    ]
+  },
+  "options": {
+    "colorMode": "value",
+    "graphMode": "none",
+    "justifyMode": "auto",
+    "orientation": "horizontal",
+    "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+    "textMode": "value_and_name"
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": { "type": "grafana-azure-monitor-datasource", "uid": "${ds}" },
+      "queryType": "Azure Log Analytics",
+      "azureLogAnalytics": {
+        "resource": "${law}",
+        "query": "let acsTransfers = ACSCallAutomationIncomingOperations\n| where TimeGenerated $__timeFilter()\n| where OperationName has_any ('Transfer','CallTransferAccepted','CallTransferFailed')\n| summarize TransfersAccepted = countif(OperationName has 'Accepted' or ResultType == 'Succeeded'), TransfersFailed = countif(OperationName has 'Failed' or ResultType == 'Failed');\nlet d365 = AppTraces\n| where TimeGenerated $__timeFilter()\n| extend cd = parse_json(Properties)\n| where tostring(cd['powerplatform.analytics.subscenario']) has_any ('Classification','RouteToQueue')\n| summarize D365ConversationsCreated = dcount(tostring(cd['cc_contextId']));\nacsTransfers | extend d = 1 | join kind=fullouter (d365 | extend d = 1) on d\n| project TransfersAccepted, TransfersFailed, D365ConversationsCreated, HandoffGap = TransfersAccepted - D365ConversationsCreated"
+      }
+    }
+  ]
+}

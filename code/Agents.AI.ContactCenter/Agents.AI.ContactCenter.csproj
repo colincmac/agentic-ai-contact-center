@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InjectSharedThrow>true</InjectSharedThrow>
+
+  </PropertyGroup>
+  <ItemGroup>
+
+    <!-- Azure Communication Services (ACS)-->
+    <PackageReference Include="Azure.Communication.CallAutomation" Version="1.6.0-beta.1" />
+    <PackageReference Include="Azure.Communication.Common" Version="1.4.0" />
+    <PackageReference Include="Azure.Communication.Identity" Version="1.4.0-beta.1" />
+    <PackageReference Include="Azure.Messaging.EventGrid" Version="5.0.0" />
+
+    <!-- Azure Blob Storage -->
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
+    <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.1" />
+
+    <!-- Azure Managed Redis (AMR)-->
+    <PackageReference Include="StackExchange.Redis" Version="2.13.1" />
+
+    <!-- Azure Cosmos DB (call-state snapshot + event log store) -->
+    <PackageReference Include="Aspire.Microsoft.Azure.Cosmos" Version="13.4.6" />
+
+    <PackageReference Include="Microsoft.Extensions.Telemetry.Abstractions" Version="10.9.0" />
+    <PackageReference Include="Microsoft.OpenTelemetry" Version="1.0.2" />
+    <PackageReference Include="Polly.Core" Version="8.6.6" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
+    <PackageReference Include="Grpc.Net.ClientFactory" Version="2.80.0" />
+
+    <!-- Agent Framework Workflows runtime (executor/edge/InProcessExecution) -->
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.2.0" />
+
+    <!-- YAML authoring surface for declarative IVR workflows -->
+    <PackageReference Include="YamlDotNet" Version="17.1.0" />
+
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <Protobuf Include="..\protos\agents.realtimevoice.v1.proto" GrpcServices="Server" />
+    <Protobuf Include="..\protos\biometrics.v1.proto" GrpcServices="Client" />
+    <Protobuf Include="..\protos\agents.intent.v1.proto" GrpcServices="Client" />
+
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agents.AI.Extensions\Agents.AI.Extensions.csproj" />
+    <ProjectReference Include="..\Agents.AI\Agents.AI.csproj" />
+    <ProjectReference Include="..\Agents.AI.Sandbox\Agents.AI.Sandbox.csproj" />
+    <!-- Call-correlation contract + transfer-context header builder (leaf observability lib). -->
+    <ProjectReference Include="..\Agents.AI.Monitoring\Agents.AI.Monitoring.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship YAML samples + schema next to the assembly so they can be discovered at runtime. -->
+    <Content Include="IvrWorkflow\Samples\*.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="IvrWorkflow\Schema\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agents.AI.ContactCenter.Tests" />
+  </ItemGroup>
+</Project>
