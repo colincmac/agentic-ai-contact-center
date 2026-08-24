@@ -1,0 +1,13 @@
+{
+  "analyzers": {
+    "core": {
+      "rules": {
+        "use-recent-api-versions": {
+          "level": "warning",
+          "maxAgeInDays": 0,
+          "gracePeriodInDays": 0
+        }
+      }
+    }
+  }
+}
