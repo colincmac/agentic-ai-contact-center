@@ -77,3 +77,4 @@ msbuild.wrn
 
 # Node dependencies (frontend and docs validation tooling)
 node_modules/
+.azure
