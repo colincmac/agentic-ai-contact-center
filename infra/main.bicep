@@ -105,7 +105,7 @@ param aksAvailabilityZonesJson string = '[]'
 param aksAdminGroupObjectIdsJson string = '[]'
 
 @description('VM size for AKS system pools.')
-param systemNodeVmSize string = 'Standard_D4ds_v5'
+param systemNodeVmSize string = 'Standard_D4ds_v7'
 
 @minValue(1)
 @description('Minimum system nodes per cluster.')
@@ -116,7 +116,7 @@ param systemNodeMinCount int = 3
 param systemNodeMaxCount int = 6
 
 @description('VM size for voice-edge node pools.')
-param voiceNodeVmSize string = 'Standard_D16ds_v5'
+param voiceNodeVmSize string = 'Standard_D16ds_v7'
 
 @minValue(1)
 @description('Minimum voice-edge nodes per cluster.')
@@ -130,7 +130,7 @@ param voiceNodeMaxCount int = 3
 param deployIstioGatewayNodePool bool = true
 
 @description('VM size for dedicated Istio gateway pools.')
-param istioGatewayNodeVmSize string = 'Standard_D8ds_v6'
+param istioGatewayNodeVmSize string = 'Standard_D8ds_v7'
 
 @minValue(1)
 @description('Minimum dedicated Istio gateway nodes per cluster.')
