@@ -105,13 +105,13 @@
       "value": "${AZURE_AKS_SYSTEM_NODE_VM_SIZE=Standard_D4ds_v7}"
     },
     "systemNodeMinCount": {
-      "value": "${AZURE_AKS_SYSTEM_NODE_MIN_COUNT=1}"
+      "value": "${AZURE_AKS_SYSTEM_NODE_MIN_COUNT=2}"
     },
     "systemNodeMaxCount": {
       "value": "${AZURE_AKS_SYSTEM_NODE_MAX_COUNT=3}"
     },
     "voiceNodeVmSize": {
-      "value": "${AZURE_AKS_VOICE_NODE_VM_SIZE=Standard_D16ds_v7}"
+      "value": "${AZURE_AKS_VOICE_NODE_VM_SIZE=Standard_D8ds_v7}"
     },
     "voiceNodeMinCount": {
       "value": "${AZURE_AKS_VOICE_NODE_MIN_COUNT=1}"
@@ -120,7 +120,7 @@
       "value": "${AZURE_AKS_VOICE_NODE_MAX_COUNT=3}"
     },
     "deployIstioGatewayNodePool": {
-      "value": "${DEPLOY_AKS_ISTIO_GATEWAY_POOL=true}"
+      "value": "${DEPLOY_AKS_ISTIO_GATEWAY_POOL=false}"
     },
     "istioGatewayNodeVmSize": {
       "value": "${AZURE_AKS_ISTIO_NODE_VM_SIZE=Standard_D8ds_v7}"
