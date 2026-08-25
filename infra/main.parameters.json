@@ -93,7 +93,7 @@
       "value": "${AZURE_REDIS_SKU=Balanced_B1}"
     },
     "kubernetesVersion": {
-      "value": "${AZURE_AKS_VERSION=}"
+      "value": "${AZURE_AKS_VERSION=1.36.3}"
     },
     "aksAvailabilityZonesJson": {
       "value": "${AZURE_AKS_AVAILABILITY_ZONES=[]}"
@@ -144,7 +144,7 @@
       "value": "${AZURE_AKS_GPU_NODE_MAX_COUNT=3}"
     },
     "enableDefender": {
-      "value": "${ENABLE_AKS_DEFENDER=false}"
+      "value": "${ENABLE_AKS_DEFENDER=true}"
     },
     "botMessagingEndpoint": {
       "value": "${AZURE_BOT_MESSAGING_ENDPOINT=}"

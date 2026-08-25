@@ -36,9 +36,7 @@ resource prometheusDataCollectionEndpoint 'Microsoft.Insights/dataCollectionEndp
   }
 }
 
-// This API version is the current stable Prometheus DCR API used by Microsoft's collector templates.
-#disable-next-line BCP081
-resource prometheusDataCollectionRule 'Microsoft.Insights/dataCollectionRules@2025-05-11' = {
+resource prometheusDataCollectionRule 'Microsoft.Insights/dataCollectionRules@2024-03-11' = {
   name: dataCollectionRuleName
   location: azureMonitorWorkspaceLocation
   kind: 'Linux'

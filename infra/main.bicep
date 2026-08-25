@@ -81,7 +81,7 @@ param existingAppInsightsConnectionName string = ''
 param apiManagementPublisherName string = 'Zava Financial'
 
 @description('API Management publisher email.')
-param apiManagementPublisherEmail string = 'platform@zavafinancial.example'
+param apiManagementPublisherEmail string = 'platform@example.com'
 
 @description('Deploy Azure Bastion in the platform hub VNet.')
 param deployBastion bool = true
