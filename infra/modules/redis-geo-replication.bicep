@@ -9,14 +9,14 @@ param linkedDatabaseIds string[]
 @description('Stable nickname for the active geo-replication group.')
 param groupNickname string
 
-resource redisCluster 'Microsoft.Cache/redisEnterprise@2025-07-01' existing = {
+resource redisCluster 'Microsoft.Cache/redisEnterprise@2026-06-01-preview' existing = {
   name: redisClusterName
 }
 
 var redisDatabaseId = '${redisCluster.id}/databases/default'
 var peerDatabaseIds = filter(linkedDatabaseIds, linkedDatabaseId => linkedDatabaseId != redisDatabaseId)
 
-resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-07-01' = {
+resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2026-06-01-preview' = {
   parent: redisCluster
   name: 'default'
   properties: {

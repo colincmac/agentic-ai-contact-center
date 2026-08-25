@@ -6,11 +6,11 @@ param cosmosAccountName string
 @description('Principal ID of the regional AKS workload identity.')
 param workloadPrincipalId string
 
-resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2025-04-15' existing = {
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2026-04-01-preview' existing = {
   name: cosmosAccountName
 }
 
-resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2025-04-15' = {
+resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2026-04-01-preview' = {
   parent: cosmosAccount
   name: guid(cosmosAccount.id, workloadPrincipalId, 'Cosmos DB Built-in Data Contributor')
   properties: {

@@ -92,7 +92,7 @@ param availabilityZones string[] = []
 param aksAdminGroupObjectIds string[] = []
 
 @description('VM size for the AKS system node pool.')
-param systemNodeVmSize string = 'Standard_D4ds_v5'
+param systemNodeVmSize string = 'Standard_D4ds_v7'
 
 @minValue(1)
 @description('Minimum node count for the AKS system pool.')
@@ -103,7 +103,7 @@ param systemNodeMinCount int = 3
 param systemNodeMaxCount int = 6
 
 @description('VM size for the voice-edge node pool.')
-param voiceNodeVmSize string = 'Standard_D16ds_v5'
+param voiceNodeVmSize string = 'Standard_D16ds_v7'
 
 @minValue(1)
 @description('Minimum node count for the voice-edge pool.')
@@ -117,7 +117,7 @@ param voiceNodeMaxCount int = 3
 param deployIstioGatewayNodePool bool = true
 
 @description('VM size for the dedicated Istio ingress gateway pool.')
-param istioGatewayNodeVmSize string = 'Standard_D8ds_v6'
+param istioGatewayNodeVmSize string = 'Standard_D8ds_v7'
 
 @minValue(1)
 @description('Minimum node count for the Istio gateway pool.')
@@ -223,7 +223,7 @@ resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2025-07-01' = {
   location: location
   tags: tags
   sku: {
-    name: 'Standard'
+    name: 'StandardV2'
     tier: 'Regional'
   }
   properties: {
@@ -237,7 +237,7 @@ resource natGateway 'Microsoft.Network/natGateways@2025-07-01' = {
   location: location
   tags: tags
   sku: {
-    name: 'Standard'
+    name: 'StandardV2'
   }
   properties: {
     idleTimeoutInMinutes: 10
@@ -375,7 +375,7 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2026-05-01' = {
     }
     agentPoolProfiles: [
       {
-        name: 'system'
+        name: 'system001'
         availabilityZones: availabilityZones
         count: systemNodeMinCount
         enableAutoScaling: true
@@ -442,6 +442,12 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2026-05-01' = {
       outboundType: 'userAssignedNATGateway'
       podCidr: aksPodCidr
       serviceCidr: aksServiceCidr
+      advancedNetworking: {
+        enabled: true
+        observability: {
+          enabled: true
+        }
+      }
     }
     nodeResourceGroup: take('MC_zava-contact-center-${take(location, 12)}_${take(aksName, 24)}', 80)
     oidcIssuerProfile: {
@@ -468,6 +474,10 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2026-05-01' = {
             {
               enabled: true
               mode: 'External'
+            }
+            {
+              enabled: true
+              mode: 'Internal'
             }
           ]
         }
