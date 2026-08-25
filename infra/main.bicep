@@ -218,6 +218,8 @@ var containerRegistryName = take('crzavaplatform${resourceToken}', 50)
 var apiManagementName = take('apim-zava-${environmentName}-${take(resourceToken, 6)}', 50)
 var logAnalyticsWorkspaceName = take('log-zava-shared-${location}', 63)
 var applicationInsightsName = take('appi-zava-shared-${location}', 260)
+var azureMonitorWorkspaceName = take('amw-zava-shared-${location}', 63)
+var managedGrafanaName = take('amg-zava-${environmentName}-${take(resourceToken, 6)}', 30)
 var hubVirtualNetworkName = 'vnet-connectivity-${location}'
 
 module platform 'modules/platform.bicep' = {
@@ -228,6 +230,7 @@ module platform 'modules/platform.bicep' = {
     apiManagementPublisherEmail: apiManagementPublisherEmail
     apiManagementPublisherName: apiManagementPublisherName
     applicationInsightsName: applicationInsightsName
+    azureMonitorWorkspaceName: azureMonitorWorkspaceName
     containerRegistryName: containerRegistryName
     deployBastion: deployBastion
     existingContainerRegistryEndpoint: existingContainerRegistryEndpoint
@@ -235,6 +238,7 @@ module platform 'modules/platform.bicep' = {
     hubVirtualNetworkName: hubVirtualNetworkName
     location: location
     logAnalyticsWorkspaceName: logAnalyticsWorkspaceName
+    managedGrafanaName: managedGrafanaName
     principalId: principalId
     principalType: principalType
     stampLocations: stampLocations
@@ -406,6 +410,8 @@ module regionalStamps 'modules/regional-stamp.bicep' = [
       aksServiceCidr: stampNetworks[index].serviceCidr
       aksSubnetPrefix: stampNetworks[index].aksSubnetPrefix
       availabilityZones: aksAvailabilityZones
+      azureMonitorWorkspaceId: platform.outputs.azureMonitorWorkspaceId
+      azureMonitorWorkspaceLocation: platform.outputs.azureMonitorWorkspaceLocation
       communicationServicesDataLocation: communicationServicesDataLocation
       controlPlaneIdentity: regionalIdentities[index].outputs.controlPlane
       cosmosAccountId: globalData.outputs.cosmosAccountId
@@ -489,6 +495,11 @@ output FOUNDRY_PROJECT_ENDPOINT string = aiProjectEndpoint
 output AZURE_OPENAI_ENDPOINT string = openAiEndpoint
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = platform.outputs.applicationInsightsConnectionString
 output APPLICATIONINSIGHTS_RESOURCE_ID string = platform.outputs.applicationInsightsId
+output AZURE_MONITOR_WORKSPACE_ID string = platform.outputs.azureMonitorWorkspaceId
+output AZURE_MONITOR_WORKSPACE_NAME string = platform.outputs.azureMonitorWorkspaceName
+output AZURE_MANAGED_GRAFANA_ID string = platform.outputs.managedGrafanaId
+output AZURE_MANAGED_GRAFANA_NAME string = platform.outputs.managedGrafanaName
+output AZURE_MANAGED_GRAFANA_ENDPOINT string = platform.outputs.managedGrafanaEndpoint
 output AZURE_AI_PROJECT_ACR_CONNECTION_NAME string = useExistingAiProject
   ? existingAiProject.outputs.dependentResources.registry.connectionName
   : aiProject.outputs.dependentResources.registry.connectionName

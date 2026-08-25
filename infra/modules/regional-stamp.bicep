@@ -46,6 +46,12 @@ param aksPrivateDnsZoneId string
 @description('Resource ID of the shared Log Analytics workspace.')
 param logAnalyticsWorkspaceId string
 
+@description('Resource ID of the shared Azure Monitor workspace for managed Prometheus.')
+param azureMonitorWorkspaceId string
+
+@description('Azure region of the shared Azure Monitor workspace.')
+param azureMonitorWorkspaceLocation string
+
 @description('Resource ID of the shared Cosmos DB account.')
 param cosmosAccountId string
 
@@ -474,6 +480,20 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2026-05-01' = {
     hubToSpokePeering
     spokePrivateDnsLinks
     spokeToHubPeering
+  ]
+}
+
+module managedPrometheus 'aks-prometheus.bicep' = {
+  name: 'managed-prometheus-${namingToken}'
+  params: {
+    azureMonitorWorkspaceId: azureMonitorWorkspaceId
+    azureMonitorWorkspaceLocation: azureMonitorWorkspaceLocation
+    clusterLocation: location
+    clusterName: aksCluster.name
+    tags: tags
+  }
+  dependsOn: [
+    aksCluster
   ]
 }
 
@@ -967,6 +987,7 @@ output virtualNetworkName string = spokeVirtualNetwork.name
 output aksClusterId string = aksCluster.id
 output aksClusterName string = aksCluster.name
 output aksOidcIssuerUrl string = aksCluster.properties.oidcIssuerProfile.issuerURL
+output prometheusDataCollectionRuleId string = managedPrometheus.outputs.dataCollectionRuleId
 output workloadIdentityClientId string = workloadIdentity.clientId
 output keyVaultName string = keyVault.name
 output storageAccountName string = storageAccount.name
