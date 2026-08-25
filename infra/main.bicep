@@ -194,6 +194,7 @@ var baseTags = {
   managedBy: 'azd'
   workload: 'contact-center'
 }
+var primaryRegionalResourceGroupName = 'zava-contact-center-${location}'
 
 resource platformResourceGroup 'Microsoft.Resources/resourceGroups@2025-04-01' = {
   name: platformResourceGroupName
@@ -336,7 +337,7 @@ var cosmosAccountName = take('cosmos-zava-contact-${resourceToken}', 44)
 var botServiceName = take('bot-zava-contact-center-${resourceToken}', 64)
 
 module globalData 'modules/global-data.bicep' = {
-  scope: regionalResourceGroups[0]
+  scope: resourceGroup(primaryRegionalResourceGroupName)
   name: 'global-contact-center-data'
   params: {
     botMessagingEndpoint: botMessagingEndpoint
@@ -347,10 +348,13 @@ module globalData 'modules/global-data.bicep' = {
     resourceToken: resourceToken
     stampLocations: stampLocations
     tags: union(baseTags, {
-      resourceGroup: regionalResourceGroups[0].name
+      resourceGroup: primaryRegionalResourceGroupName
       region: location
     })
   }
+  dependsOn: [
+    regionalResourceGroups[0]
+  ]
 }
 
 module regionalIdentities 'modules/regional-identities.bicep' = [
