@@ -76,6 +76,7 @@ output projectId string = aiAccount::project.id
 output aiServicesAccountName string = aiAccount.name
 output aiServicesProjectName string = aiAccount::project.name
 output aiServicesPrincipalId string = aiAccount.identity.principalId
+output projectPrincipalId string = aiAccount::project.identity.principalId
 output projectName string = aiAccount::project.name
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = existingApplicationInsightsConnectionString
 output APPLICATIONINSIGHTS_RESOURCE_ID string = existingApplicationInsightsResourceId

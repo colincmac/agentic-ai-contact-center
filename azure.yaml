@@ -5,6 +5,7 @@ name: agentic-ai-contact-center
 infra:
   provider: bicep
   path: ./infra
+  module: main
 
 requiredVersions:
   extensions:

@@ -62,6 +62,20 @@ param existingApplicationInsightsResourceId string = ''
 @description('Optional. Name of an existing Application Insights connection on the Foundry project. If provided, no new App Insights or connection will be created.')
 param existingAppInsightsConnectionName string = ''
 
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+@description('Public network access mode for a newly created AI Services account.')
+param publicNetworkAccess string = 'Enabled'
+
+@allowed([
+  'Allow'
+  'Deny'
+])
+@description('Default network ACL action for a newly created AI Services account.')
+param networkAclsDefaultAction string = 'Allow'
+
 // Load abbreviations
 var abbrs = loadJsonContent('../../abbreviations.json')
 
@@ -123,11 +137,11 @@ resource aiAccount 'Microsoft.CognitiveServices/accounts@2026-05-01' = {
     allowProjectManagement: true
     customSubDomainName: !empty(existingAiAccountName) ? existingAiAccountName : 'ai-account-${resourceToken}'
     networkAcls: {
-      defaultAction: 'Allow'
+      defaultAction: networkAclsDefaultAction
       virtualNetworkRules: []
       ipRules: []
     }
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: publicNetworkAccess
     disableLocalAuth: true
   }
   
@@ -345,6 +359,7 @@ output projectId string = aiAccount::project.id
 output aiServicesAccountName string = aiAccount.name
 output aiServicesProjectName string = aiAccount::project.name
 output aiServicesPrincipalId string = aiAccount.identity.principalId
+output projectPrincipalId string = aiAccount::project.identity.principalId
 output projectName string = aiAccount::project.name
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = shouldCreateAppInsights ? applicationInsights.outputs.connectionString : (hasExistingAppInsightsConnectionString ? existingApplicationInsightsConnectionString : '')
 output APPLICATIONINSIGHTS_RESOURCE_ID string = shouldCreateAppInsights ? applicationInsights.outputs.id : (hasExistingAppInsightsConnectionString ? existingApplicationInsightsResourceId : '')

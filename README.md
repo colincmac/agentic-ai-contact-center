@@ -12,10 +12,11 @@ or capacity model fits every deployment.
 
 > [!IMPORTANT]
 > The architecture and documentation are available now. The demonstrator .NET
-> solution has not yet been migrated into [`code/`](code/), and
-> [`infra/main.bicep`](infra/main.bicep) is not yet a deployable accelerator
-> template. Treat scaling figures as modeled targets unless an evidence record
-> explicitly says otherwise.
+> solution has not yet been migrated into [`code/`](code/). The
+> [`infra/main.bicep`](infra/main.bicep) template provisions the modeled Zava
+> Financial landing-zone infrastructure, but it has not been deployed or load
+> tested as evidence. Treat scaling figures as modeled targets unless an evidence
+> record explicitly says otherwise.
 
 ## What is here
 
@@ -58,7 +59,7 @@ interactions.
 | Architecture views and ADRs | Available; open decisions remain marked `Proposed` or `Draft` |
 | TPE setup automation | Available for review and environment-specific testing |
 | Monitoring model, KQL, and dashboard design | Reference artifacts; deployment assets are not fully migrated |
-| Bicep infrastructure | Placeholder, not deployable |
+| Bicep infrastructure | Subscription-scope platform and N-region application-stamp template available; Azure deployment evidence is not yet recorded |
 | .NET demonstrator and implementation tests | Pending migration to `code/` |
 | Measured performance and failover evidence | Not yet recorded in this repository |
 
@@ -74,6 +75,26 @@ non-production environment.
 Do not treat sample limits, SKUs, retry values, or replica counts as universal
 recommendations. Validate them against current Azure service documentation,
 regional availability, quota, security policy, and workload evidence.
+
+## Provisioning the Azure infrastructure
+
+The AZD template deploys `zava-platform` plus a primary
+`zava-contact-center-<region>` application landing-zone stamp. Add regional
+stamps by setting `AZURE_ADDITIONAL_LOCATIONS` to a JSON array before
+provisioning:
+
+```powershell
+azd env set AZURE_LOCATION eastus2
+azd env set AZURE_AI_DEPLOYMENTS_LOCATION eastus2
+azd env set AZURE_ADDITIONAL_LOCATIONS '["westus3"]'
+azd provision
+```
+
+The default AKS node sizes and counts follow the accepted architecture decisions
+and can be expensive. Use the `AZURE_AKS_*` environment variables declared in
+[`infra/main.parameters.json`](infra/main.parameters.json) to select
+region-supported SKUs and demo-appropriate capacity. Provisioning requires
+subscription-scope resource deployment and role-assignment permissions.
 
 ## Validation
 
