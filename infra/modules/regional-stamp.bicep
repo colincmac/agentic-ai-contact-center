@@ -144,12 +144,6 @@ param gpuNodeMaxCount int = 3
 @description('Storage replication SKU used by the regional application storage account.')
 param storageSkuName string = 'Standard_ZRS'
 
-@description('Azure Managed Redis SKU.')
-param redisSkuName string = 'Balanced_B1'
-
-@description('Azure Communication Services data geography.')
-param communicationServicesDataLocation string = 'United States'
-
 @description('Kubernetes namespace federated to the regional workload identity.')
 param workloadIdentityNamespace string = 'contact-center'
 
@@ -162,13 +156,11 @@ param enableDefender bool = false
 @description('Tags applied to regional resources.')
 param tags object = {}
 
-var spokeVirtualNetworkName = 'vnet-contact-center-${location}'
-var aksName = 'aks-zava-contact-center-${location}'
-var keyVaultName = take('kv-zava-${take(location, 5)}-${take(namingToken, 6)}', 24)
-var storageAccountName = take(replace('stzavacc${take(location, 5)}${take(namingToken, 8)}', '-', ''), 24)
-var appConfigurationName = take('appcs-zava-${take(location, 10)}-${take(namingToken, 6)}', 50)
-var communicationServiceName = take('acs-zava-${take(location, 10)}-${take(namingToken, 6)}', 63)
-var redisClusterName = take(replace('rediszavacc${take(location, 8)}${take(namingToken, 8)}', '-', ''), 60)
+var spokeVirtualNetworkName = 'vnet-contact-center-${namingToken}'
+var aksName = 'aks-zava-contact-center-${namingToken}'
+var keyVaultName = take('kv-zava-${take(namingToken, 6)}', 24)
+var storageAccountName = take(replace('stzavacc${take(namingToken, 8)}', '-', ''), 24)
+var appConfigurationName = take('appcs-zava-${take(namingToken, 6)}', 50)
 
 resource controlPlaneUserAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' existing = {
   name: controlPlaneIdentity.name
@@ -333,6 +325,16 @@ resource controlPlaneNetworkContributor 'Microsoft.Authorization/roleAssignments
     principalId: controlPlaneIdentity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')
+  }
+}
+
+resource controlPlaneManagedIdentityOperator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: kubeletUserAssignedIdentity
+  name: guid(kubeletUserAssignedIdentity.id, 'Managed Identity Operator')
+  properties: {
+    principalId: controlPlaneIdentity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'f1a07417-d97a-45cb-824c-7a7467783830')
   }
 }
 
@@ -751,83 +753,6 @@ resource workloadAppConfigurationReader 'Microsoft.Authorization/roleAssignments
   }
 }
 
-// ACS has no Private Link support; Microsoft Entra authentication replaces access keys.
-resource communicationServices 'Microsoft.Communication/communicationServices@2026-03-18' = {
-  name: communicationServiceName
-  location: 'global'
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    dataLocation: communicationServicesDataLocation
-    disableLocalAuth: true
-    publicNetworkAccess: 'Enabled'
-  }
-}
-
-resource workloadCommunicationDataOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: communicationServices
-  name: guid(communicationServices.id, workloadIdentity.principalId, 'Azure Communication Services Data Owner')
-  properties: {
-    principalId: workloadIdentity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
-  }
-}
-
-resource communicationSystemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
-  name: 'evgt-zava-contact-center-${location}'
-  location: 'global'
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    source: communicationServices.id
-    topicType: 'Microsoft.Communication.CommunicationServices'
-  }
-}
-
-resource redisCluster 'Microsoft.Cache/redisEnterprise@2025-07-01' = {
-  name: redisClusterName
-  location: location
-  tags: tags
-  sku: {
-    name: redisSkuName
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    encryption: {}
-    highAvailability: 'Enabled'
-    minimumTlsVersion: '1.2'
-    publicNetworkAccess: 'Disabled'
-  }
-}
-
-resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-07-01' = {
-  parent: redisCluster
-  name: 'default'
-  properties: {
-    accessKeysAuthentication: 'Disabled'
-    clientProtocol: 'Encrypted'
-    clusteringPolicy: 'OSSCluster'
-    evictionPolicy: 'NoEviction'
-  }
-}
-
-resource workloadRedisAccess 'Microsoft.Cache/redisEnterprise/databases/accessPolicyAssignments@2025-07-01' = {
-  parent: redisDatabase
-  name: take(replace(guid(redisDatabase.id, workloadIdentity.principalId), '-', ''), 60)
-  properties: {
-    accessPolicyName: 'default'
-    user: {
-      objectId: workloadIdentity.principalId
-    }
-  }
-}
 
 module keyVaultPrivateEndpoint 'private-endpoint.bicep' = {
   name: 'key-vault-private-endpoint'
@@ -929,25 +854,7 @@ module cosmosPrivateEndpoint 'private-endpoint.bicep' = {
   ]
 }
 
-module redisPrivateEndpoint 'private-endpoint.bicep' = {
-  name: 'redis-private-endpoint'
-  params: {
-    groupIds: [
-      'redisEnterprise'
-    ]
-    location: location
-    name: 'pep-${redisCluster.name}'
-    privateDnsZoneIds: [
-      privateDnsZoneIds.redis
-    ]
-    privateLinkServiceId: redisCluster.id
-    subnetId: privateEndpointSubnet.id
-    tags: tags
-  }
-  dependsOn: [
-    spokePrivateDnsLinks
-  ]
-}
+
 
 resource aksDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   name: 'send-to-shared-log-analytics'
@@ -994,6 +901,7 @@ output location string = location
 output resourceGroupName string = resourceGroup().name
 output virtualNetworkId string = spokeVirtualNetwork.id
 output virtualNetworkName string = spokeVirtualNetwork.name
+output privateEndpointSubnetId string = privateEndpointSubnet.id
 output aksClusterId string = aksCluster.id
 output aksClusterName string = aksCluster.name
 output aksOidcIssuerUrl string = aksCluster.properties.oidcIssuerProfile.issuerURL
@@ -1002,8 +910,3 @@ output workloadIdentityClientId string = workloadIdentity.clientId
 output keyVaultName string = keyVault.name
 output storageAccountName string = storageAccount.name
 output appConfigurationEndpoint string = appConfiguration.properties.endpoint
-output communicationServicesName string = communicationServices.name
-output communicationSystemTopicId string = communicationSystemTopic.id
-output redisClusterId string = redisCluster.id
-output redisClusterName string = redisCluster.name
-output redisDatabaseId string = redisDatabase.id

@@ -1,5 +1,7 @@
 targetScope = 'subscription'
 
+import { getShortLocation } from './core/helpers.bicep'
+
 @minLength(1)
 @maxLength(64)
 @description('AZD environment name used for tags and globally unique resource names.')
@@ -23,9 +25,6 @@ param principalId string
 
 @description('Principal type of the deployment principal.')
 param principalType string
-
-@description('Optional salt used to diversify globally unique resource names across recreations.')
-param resourceTokenSalt string = ''
 
 @description('Optional existing AI Services account name in zava-platform.')
 param aiFoundryResourceName string = ''
@@ -93,7 +92,7 @@ param communicationServicesDataLocation string = 'United States'
 param storageSkuName string = 'Standard_ZRS'
 
 @description('Azure Managed Redis SKU used by every regional stamp.')
-param redisSkuName string = 'Balanced_B1'
+param redisSkuName string = 'Balanced_B10'
 
 @description('Kubernetes version. Empty selects the regional AKS default.')
 param kubernetesVersion string = ''
@@ -167,11 +166,10 @@ var stampLocations = union([
 var aksAvailabilityZones = json(aksAvailabilityZonesJson)
 var aksAdminGroupObjectIds = json(aksAdminGroupObjectIdsJson)
 var resolvedAiFoundryProjectName = empty(aiFoundryProjectName) ? 'ai-project-${environmentName}' : aiFoundryProjectName
-var resourceToken = empty(resourceTokenSalt)
-  ? uniqueString(subscription().id, environmentName)
-  : uniqueString(subscription().id, environmentName, resourceTokenSalt)
+var normalizedEnvironmentName = toLower(environmentName)
+var compactEnvironmentName = replace(normalizedEnvironmentName, '-', '')
 var stampNamingTokens = [
-  for stampLocation in stampLocations: '${take(replace(stampLocation, '-', ''), 10)}-${take(uniqueString(subscription().id, environmentName, stampLocation), 6)}'
+  for stampLocation in stampLocations: '${take(replace(getShortLocation(stampLocation), '-', ''), 10)}-${take(uniqueString(subscription().id, environmentName, stampLocation), 6)}'
 ]
 var stampNetworks = [
   for (stampLocation, index) in stampLocations: {
@@ -194,7 +192,9 @@ var baseTags = {
   managedBy: 'azd'
   workload: 'contact-center'
 }
-var primaryRegionalResourceGroupName = 'zava-contact-center-${location}'
+
+var shortLocation = getShortLocation(location)
+var primaryRegionalResourceGroupName = 'zava-contact-center-${shortLocation}'
 
 resource platformResourceGroup 'Microsoft.Resources/resourceGroups@2025-04-01' = {
   name: platformResourceGroupName
@@ -206,7 +206,7 @@ resource platformResourceGroup 'Microsoft.Resources/resourceGroups@2025-04-01' =
 
 resource regionalResourceGroups 'Microsoft.Resources/resourceGroups@2025-04-01' = [
   for stampLocation in stampLocations: {
-    name: 'zava-contact-center-${stampLocation}'
+    name: 'zava-contact-center-${getShortLocation(stampLocation)}'
     location: stampLocation
     tags: union(baseTags, {
       landingZoneRole: 'application'
@@ -215,13 +215,24 @@ resource regionalResourceGroups 'Microsoft.Resources/resourceGroups@2025-04-01' 
   }
 ]
 
-var containerRegistryName = take('crzavaplatform${resourceToken}', 50)
-var apiManagementName = take('apim-zava-${environmentName}-${take(resourceToken, 6)}', 50)
-var logAnalyticsWorkspaceName = take('log-zava-shared-${location}', 63)
-var applicationInsightsName = take('appi-zava-shared-${location}', 260)
-var azureMonitorWorkspaceName = take('amw-zava-shared-${location}', 63)
-var managedGrafanaName = take('amg-zava-${environmentName}-${take(resourceToken, 6)}', 30)
-var hubVirtualNetworkName = 'vnet-connectivity-${location}'
+var containerRegistryName = take('crzavaplatform${compactEnvironmentName}', 50)
+var apiManagementName = take('apim-zava-${normalizedEnvironmentName}', 50)
+var logAnalyticsWorkspaceName = take('log-zava-shared-${shortLocation}', 63)
+var applicationInsightsName = take('appi-zava-shared-${shortLocation}', 260)
+var azureMonitorWorkspaceName = take('amw-zava-shared-${shortLocation}', 63)
+var managedGrafanaName = take('amg-zava-${normalizedEnvironmentName}', 23)
+var hubVirtualNetworkName = 'vnet-connectivity-${shortLocation}'
+
+var aiAccountId = useExistingAiProject ? existingAiProject.outputs.accountId : aiProject.outputs.accountId
+var aiAccountName = useExistingAiProject ? existingAiProject.outputs.aiServicesAccountName : aiProject.outputs.aiServicesAccountName
+var aiProjectId = useExistingAiProject ? existingAiProject.outputs.projectId : aiProject.outputs.projectId
+var aiProjectName = useExistingAiProject ? existingAiProject.outputs.projectName : aiProject.outputs.projectName
+var aiProjectPrincipalId = useExistingAiProject ? existingAiProject.outputs.projectPrincipalId : aiProject.outputs.projectPrincipalId
+var aiProjectEndpoint = useExistingAiProject ? existingAiProject.outputs.AZURE_AI_PROJECT_ENDPOINT : aiProject.outputs.AZURE_AI_PROJECT_ENDPOINT
+var openAiEndpoint = useExistingAiProject ? existingAiProject.outputs.AZURE_OPENAI_ENDPOINT : aiProject.outputs.AZURE_OPENAI_ENDPOINT
+
+var cosmosAccountName = take('cosmos-zava-contact-center-${normalizedEnvironmentName}', 44)
+var botServiceName = take('bot-zava-contact-center-${normalizedEnvironmentName}', 64)
 
 module platform 'modules/platform.bicep' = {
   scope: platformResourceGroup
@@ -233,6 +244,8 @@ module platform 'modules/platform.bicep' = {
     applicationInsightsName: applicationInsightsName
     azureMonitorWorkspaceName: azureMonitorWorkspaceName
     containerRegistryName: containerRegistryName
+    communicationServicesDataLocation: communicationServicesDataLocation
+    cosmosAccountName: cosmosAccountName
     deployBastion: deployBastion
     existingContainerRegistryEndpoint: existingContainerRegistryEndpoint
     existingContainerRegistryResourceId: existingContainerRegistryResourceId
@@ -275,12 +288,12 @@ module aiProject 'core/ai/ai-project.bicep' = if (!useExistingAiProject) {
     existingAppInsightsConnectionName: existingAppInsightsConnectionName
     existingContainerRegistryEndpoint: platform.outputs.containerRegistryEndpoint
     existingContainerRegistryResourceId: platform.outputs.containerRegistryId
+    environmentName: environmentName
     location: aiDeploymentsLocation
     networkAclsDefaultAction: enableHostedAgents ? 'Allow' : 'Deny'
     principalId: principalId
     principalType: principalType
     publicNetworkAccess: enableHostedAgents ? 'Enabled' : 'Disabled'
-    resourceTokenSalt: resourceTokenSalt
     tags: union(baseTags, {
       resourceGroup: platformResourceGroup.name
     })
@@ -303,13 +316,7 @@ module existingAiProject 'core/ai/existing-ai-project.bicep' = if (useExistingAi
   }
 }
 
-var aiAccountId = useExistingAiProject ? existingAiProject.outputs.accountId : aiProject.outputs.accountId
-var aiAccountName = useExistingAiProject ? existingAiProject.outputs.aiServicesAccountName : aiProject.outputs.aiServicesAccountName
-var aiProjectId = useExistingAiProject ? existingAiProject.outputs.projectId : aiProject.outputs.projectId
-var aiProjectName = useExistingAiProject ? existingAiProject.outputs.projectName : aiProject.outputs.projectName
-var aiProjectPrincipalId = useExistingAiProject ? existingAiProject.outputs.projectPrincipalId : aiProject.outputs.projectPrincipalId
-var aiProjectEndpoint = useExistingAiProject ? existingAiProject.outputs.AZURE_AI_PROJECT_ENDPOINT : aiProject.outputs.AZURE_AI_PROJECT_ENDPOINT
-var openAiEndpoint = useExistingAiProject ? existingAiProject.outputs.AZURE_OPENAI_ENDPOINT : aiProject.outputs.AZURE_OPENAI_ENDPOINT
+
 
 module aiServicesPrivateEndpoint 'modules/private-endpoint.bicep' = {
   scope: platformResourceGroup
@@ -333,20 +340,14 @@ module aiServicesPrivateEndpoint 'modules/private-endpoint.bicep' = {
   }
 }
 
-var cosmosAccountName = take('cosmos-zava-contact-${resourceToken}', 44)
-var botServiceName = take('bot-zava-contact-center-${resourceToken}', 64)
-
 module globalData 'modules/global-data.bicep' = {
   scope: resourceGroup(primaryRegionalResourceGroupName)
   name: 'global-contact-center-data'
   params: {
     botMessagingEndpoint: botMessagingEndpoint
     botServiceName: botServiceName
-    cosmosAccountName: cosmosAccountName
+    environmentName: environmentName
     location: location
-    logAnalyticsWorkspaceId: platform.outputs.logAnalyticsWorkspaceId
-    resourceToken: resourceToken
-    stampLocations: stampLocations
     tags: union(baseTags, {
       resourceGroup: primaryRegionalResourceGroupName
       region: location
@@ -392,10 +393,10 @@ module platformRbac 'modules/platform-rbac.bicep' = [
 
 module cosmosRbac 'modules/cosmos-rbac.bicep' = [
   for (stampLocation, index) in stampLocations: {
-    scope: regionalResourceGroups[0]
+    scope: platformResourceGroup
     name: 'cosmos-rbac-${stampNamingTokens[index]}'
     params: {
-      cosmosAccountName: globalData.outputs.cosmosAccountName
+      cosmosAccountName: platform.outputs.cosmosAccountName
       workloadPrincipalId: regionalIdentities[index].outputs.workload.principalId
     }
   }
@@ -416,9 +417,8 @@ module regionalStamps 'modules/regional-stamp.bicep' = [
       availabilityZones: aksAvailabilityZones
       azureMonitorWorkspaceId: platform.outputs.azureMonitorWorkspaceId
       azureMonitorWorkspaceLocation: platform.outputs.azureMonitorWorkspaceLocation
-      communicationServicesDataLocation: communicationServicesDataLocation
       controlPlaneIdentity: regionalIdentities[index].outputs.controlPlane
-      cosmosAccountId: globalData.outputs.cosmosAccountId
+      cosmosAccountId: platform.outputs.cosmosAccountId
       deployGpuNodePool: deployGpuNodePool
       deployIstioGatewayNodePool: deployIstioGatewayNodePool
       enableDefender: enableDefender
@@ -446,7 +446,6 @@ module regionalStamps 'modules/regional-stamp.bicep' = [
       }
       privateDnsZoneNames: platform.outputs.privateDnsZoneNames
       privateEndpointSubnetPrefix: stampNetworks[index].privateEndpointSubnetPrefix
-      redisSkuName: redisSkuName
       regionIndex: index
       spokeAddressPrefix: stampNetworks[index].spokeAddressPrefix
       storageSkuName: storageSkuName
@@ -463,23 +462,39 @@ module regionalStamps 'modules/regional-stamp.bicep' = [
       workloadIdentity: regionalIdentities[index].outputs.workload
     }
     dependsOn: [
-      cosmosRbac
+      // cosmosRbac
       platformRbac
     ]
   }
 ]
 
+var redisReplicationGroupNickname = take('zava-contact-center-${normalizedEnvironmentName}', 64)
+var redisReplicaNames = [for (namingToken, index) in stampNamingTokens: take(replace('rediszavacc${take(namingToken, 8)}', '-', ''), 60)]
+var redisDatabaseIds = [
+  for (_, index) in stampLocations: '${regionalResourceGroups[index].id}/providers/Microsoft.Cache/redisEnterprise/${redisReplicaNames[index]}/databases/default'
+]
 @batchSize(1)
 module redisGeoReplication 'modules/redis-geo-replication.bicep' = [
-  for (stampLocation, index) in stampLocations: if (length(stampLocations) > 1) {
+  for (stampLocation, index) in stampLocations: {
     scope: regionalResourceGroups[index]
     name: 'redis-geo-${stampNamingTokens[index]}'
+    dependsOn:[
+      regionalResourceGroups
+    ]
     params: {
-      groupNickname: 'zava-contact-center-${take(resourceToken, 8)}'
-      linkedDatabaseIds: [
-        for (linkedStampLocation, linkedIndex) in stampLocations: regionalStamps[linkedIndex].outputs.redisDatabaseId
-      ]
-      redisClusterName: regionalStamps[index].outputs.redisClusterName
+      privateDnsZoneId: platform.outputs.privateDnsZoneIds.redis
+      privateEndpointSubnetId: regionalStamps[index].outputs.privateEndpointSubnetId
+      workloadIdentityPrincipalId: regionalIdentities[index].outputs.workload.principalId
+      groupNickname: redisReplicationGroupNickname
+      linkedDatabaseIds: (index == 0) ? [
+        '${regionalResourceGroups[index].id}/providers/Microsoft.Cache/redisEnterprise/${redisReplicaNames[index]}/databases/default'
+      ] : redisDatabaseIds
+      redisSkuName: redisSkuName
+      redisClusterName: redisReplicaNames[index]
+      tags: union(baseTags, {
+        resourceGroup: regionalResourceGroups[index].name
+        region: stampLocation
+      })
     }
   }
 ]
@@ -509,8 +524,8 @@ output AZURE_AI_PROJECT_ACR_CONNECTION_NAME string = useExistingAiProject
   : aiProject.outputs.dependentResources.registry.connectionName
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = platform.outputs.containerRegistryEndpoint
 output AZURE_CONTAINER_REGISTRY_RESOURCE_ID string = platform.outputs.containerRegistryId
-output AZURE_COSMOS_DB_ACCOUNT_NAME string = globalData.outputs.cosmosAccountName
-output AZURE_COSMOS_DB_ENDPOINT string = globalData.outputs.cosmosEndpoint
+output AZURE_COSMOS_DB_ACCOUNT_NAME string = platform.outputs.cosmosAccountName
+output AZURE_COSMOS_DB_ENDPOINT string = platform.outputs.cosmosEndpoint
 output AZURE_BOT_SERVICE_NAME string = globalData.outputs.botServiceName
 output AZURE_AKS_CLUSTERS_JSON array = [
   for (stampLocation, index) in stampLocations: {
@@ -522,19 +537,15 @@ output AZURE_AKS_CLUSTERS_JSON array = [
 ]
 output AZURE_REDIS_CLUSTERS_JSON array = [
   for (stampLocation, index) in stampLocations: {
-    id: regionalStamps[index].outputs.redisClusterId
+    id: redisGeoReplication[index].outputs.redisClusterId
     location: stampLocation
-    name: regionalStamps[index].outputs.redisClusterName
+    name: redisGeoReplication[index].outputs.redisClusterName
     resourceGroup: regionalResourceGroups[index].name
   }
 ]
-output AZURE_COMMUNICATION_SERVICES_JSON array = [
-  for (stampLocation, index) in stampLocations: {
-    location: stampLocation
-    name: regionalStamps[index].outputs.communicationServicesName
-    resourceGroup: regionalResourceGroups[index].name
-  }
-]
+output AZURE_COMMUNICATION_SERVICES_NAME string = platform.outputs.communicationServicesName
+output AZURE_COMMUNICATION_SERVICES_IMMUTABLE_RESOURCE_ID string = platform.outputs.communicationServicesImmutableResourceId
+
 output AZURE_AI_SEARCH_CONNECTION_NAME string = useExistingAiProject
   ? existingAiProject.outputs.dependentResources.search.connectionName
   : aiProject.outputs.dependentResources.search.connectionName

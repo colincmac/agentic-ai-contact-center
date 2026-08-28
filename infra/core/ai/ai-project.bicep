@@ -6,10 +6,11 @@ param tags object = {}
 @description('Main location for the resources')
 param location string
 
-@description('Optional salt to diversify resource names across project recreations')
-param resourceTokenSalt string = ''
+@description('AZD environment name used for deterministic resource names.')
+param environmentName string
 
-var resourceToken = empty(resourceTokenSalt) ? uniqueString(subscription().id, resourceGroup().id, location) : uniqueString(subscription().id, resourceGroup().id, location, resourceTokenSalt)
+var normalizedEnvironmentName = toLower(environmentName)
+var compactEnvironmentName = replace(normalizedEnvironmentName, '-', '')
 
 @description('Name of the project')
 param aiFoundryProjectName string
@@ -105,7 +106,7 @@ module logAnalytics '../monitor/loganalytics.bicep' = if (shouldCreateAppInsight
   params: {
     location: location
     tags: tags
-    name: 'logs-${resourceToken}'
+    name: take('logs-zava-${normalizedEnvironmentName}', 63)
   }
 }
 
@@ -114,7 +115,7 @@ module applicationInsights '../monitor/applicationinsights.bicep' = if (shouldCr
   params: {
     location: location
     tags: tags
-    name: 'appi-${resourceToken}'
+    name: take('appi-zava-${normalizedEnvironmentName}', 260)
     logAnalyticsWorkspaceId: logAnalytics.outputs.id
     projectMIPrincipalId: aiAccount::project.identity.principalId
   }
@@ -123,7 +124,7 @@ module applicationInsights '../monitor/applicationinsights.bicep' = if (shouldCr
 // Always create a new AI Account for now (simplified approach)
 // TODO: Add support for existing accounts in a future version
 resource aiAccount 'Microsoft.CognitiveServices/accounts@2026-05-01' = {
-  name: !empty(existingAiAccountName) ? existingAiAccountName : 'ai-account-${resourceToken}'
+  name: !empty(existingAiAccountName) ? existingAiAccountName : take('ai-account-zava-${normalizedEnvironmentName}', 64)
   location: location
   tags: tags
   sku: {
@@ -135,7 +136,7 @@ resource aiAccount 'Microsoft.CognitiveServices/accounts@2026-05-01' = {
   }
   properties: {
     allowProjectManagement: true
-    customSubDomainName: !empty(existingAiAccountName) ? existingAiAccountName : 'ai-account-${resourceToken}'
+    customSubDomainName: !empty(existingAiAccountName) ? existingAiAccountName : take('ai-account-zava-${normalizedEnvironmentName}', 64)
     networkAcls: {
       defaultAction: networkAclsDefaultAction
       virtualNetworkRules: []
@@ -192,7 +193,7 @@ var shouldCreateAppInsightsConnection = shouldCreateAppInsights || shouldCreateE
 
 resource appInsightConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2026-05-01' = if (shouldCreateAppInsightsConnection) {
   parent: aiAccount::project
-  name: 'appi-${resourceToken}'
+  name: take('appi-zava-${normalizedEnvironmentName}', 100)
   properties: {
     category: 'AppInsights'
     target: shouldCreateAppInsights ? applicationInsights.outputs.id : existingApplicationInsightsResourceId
@@ -241,7 +242,7 @@ module storage '../storage/storage.bicep' = if (hasStorageConnection) {
   params: {
     location: location
     tags: tags
-    resourceName: 'st${resourceToken}'
+    resourceName: take('stzavaai${compactEnvironmentName}', 24)
     connectionName: storageConnectionName
     principalId: principalId
     principalType: principalType
@@ -251,12 +252,12 @@ module storage '../storage/storage.bicep' = if (hasStorageConnection) {
 }
 
 // Azure Container Registry module - deploy if ACR connection is defined in ai.yaml
-module acr '../host/acr.bicep' = if (hasAcrConnection) {
+module acr '../container_registry/acr.bicep' = if (hasAcrConnection) {
   name: 'acr'
   params: {
     location: location
     tags: tags
-    resourceName: '${abbrs.containerRegistryRegistries}${resourceToken}'
+    resourceName: take('${abbrs.containerRegistryRegistries}zavaai${compactEnvironmentName}', 50)
     connectionName: acrConnectionName
     principalId: principalId
     principalType: principalType
@@ -272,7 +273,7 @@ module existingAcrConnection './connection.bicep' = if (hasExistingAcr && !hasEx
     aiServicesAccountName: aiAccount.name
     aiProjectName: aiAccount::project.name
     connectionConfig: {
-      name: 'acr-${resourceToken}'
+      name: take('acr-zava-${normalizedEnvironmentName}', 100)
       category: 'ContainerRegistry'
       target: existingContainerRegistryEndpoint
       authType: 'ManagedIdentity'
@@ -313,7 +314,7 @@ module bingGrounding '../search/bing_grounding.bicep' = if (hasBingConnection) {
   name: 'bing-grounding'
   params: {
     tags: tags
-    resourceName: 'bing-${resourceToken}'
+    resourceName: take('bing-zava-${normalizedEnvironmentName}', 64)
     connectionName: bingConnectionName
     aiServicesAccountName: aiAccount.name
     aiProjectName: aiAccount::project.name
@@ -325,7 +326,7 @@ module bingCustomGrounding '../search/bing_custom_grounding.bicep' = if (hasBing
   name: 'bing-custom-grounding'
   params: {
     tags: tags
-    resourceName: 'bingcustom-${resourceToken}'
+    resourceName: take('bingcustom-zava-${normalizedEnvironmentName}', 64)
     connectionName: bingCustomConnectionName
     aiServicesAccountName: aiAccount.name
     aiProjectName: aiAccount::project.name
@@ -337,7 +338,7 @@ module azureAiSearch '../search/azure_ai_search.bicep' = if (hasSearchConnection
   name: 'azure-ai-search'
   params: {
     tags: tags
-    resourceName: 'search-${resourceToken}'
+    resourceName: take('search-zava-${normalizedEnvironmentName}', 60)
     connectionName: searchConnectionName
     storageAccountResourceId: hasStorageConnection ? storage!.outputs.storageAccountId : ''
     containerName: 'knowledge'
@@ -375,7 +376,7 @@ output dependentResources object = {
   registry: {
     name: hasAcrConnection ? acr!.outputs.containerRegistryName : ''
     loginServer: hasAcrConnection ? acr!.outputs.containerRegistryLoginServer : ((hasExistingAcr || hasExistingAcrConnection) ? existingContainerRegistryEndpoint : '')
-    connectionName: hasAcrConnection ? acr!.outputs.containerRegistryConnectionName : (hasExistingAcrConnection ? existingAcrConnectionName : (hasExistingAcr ? 'acr-${resourceToken}' : ''))
+    connectionName: hasAcrConnection ? acr!.outputs.containerRegistryConnectionName : (hasExistingAcrConnection ? existingAcrConnectionName : (hasExistingAcr ? take('acr-zava-${normalizedEnvironmentName}', 100) : ''))
   }
   bing_grounding: {
     name: (hasBingConnection) ? bingGrounding!.outputs.bingGroundingName : ''

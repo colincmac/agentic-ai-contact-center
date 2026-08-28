@@ -21,6 +21,9 @@ param applicationInsightsName string
 @description('Name of the shared Azure Monitor workspace for managed Prometheus.')
 param azureMonitorWorkspaceName string
 
+@description('Name of the shared Cosmos DB account.')
+param cosmosAccountName string
+
 @description('Name of the shared Azure Managed Grafana workspace.')
 param managedGrafanaName string
 
@@ -51,6 +54,9 @@ param principalId string
 @description('Principal type for the deployment principal.')
 param principalType string
 
+@description('Azure Communication Services data geography.')
+param communicationServicesDataLocation string = 'United States'
+
 @description('Tags applied to platform resources.')
 param tags object = {}
 
@@ -73,6 +79,35 @@ var staticPrivateDnsZoneNames = [
 ]
 var aksPrivateDnsZoneNames = [for stampLocation in stampLocations: 'privatelink.${stampLocation}.azmk8s.io']
 var privateDnsZoneNames = union(staticPrivateDnsZoneNames, aksPrivateDnsZoneNames)
+var communicationServiceName = take('acs-zava-contact-center', 63)
+
+// ACS has no Private Link support; Microsoft Entra authentication replaces access keys.
+resource communicationServices 'Microsoft.Communication/communicationServices@2026-03-18' = {
+  name: communicationServiceName
+  location: 'global'
+  tags: tags
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    dataLocation: communicationServicesDataLocation
+    disableLocalAuth: true
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource communicationSystemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
+  name: 'evgt-zava-contact-center-${location}'
+  location: 'global'
+  tags: tags
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    source: communicationServices.id
+    topicType: 'Microsoft.Communication.CommunicationServices'
+  }
+}
 
 resource apimNetworkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2025-07-01' = {
   name: 'nsg-apim-integration-${location}'
@@ -285,6 +320,65 @@ resource deploymentPrincipalGrafanaAdmin 'Microsoft.Authorization/roleAssignment
   }
 }
 
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2025-04-15' = {
+  name: cosmosAccountName
+  location: location
+  tags: tags
+  kind: 'GlobalDocumentDB'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    consistencyPolicy: {
+      defaultConsistencyLevel: 'Session'
+    }
+    databaseAccountOfferType: 'Standard'
+    disableKeyBasedMetadataWriteAccess: true
+    disableLocalAuth: true
+    enableAnalyticalStorage: false
+    enableAutomaticFailover: true
+    enableFreeTier: false
+    enableMultipleWriteLocations: length(stampLocations) > 1
+    locations: [
+      {
+        failoverPriority: 0
+        isZoneRedundant: false
+        locationName: 'westus3'
+      }
+      // for (stampLocation, index) in stampLocations: {
+      //   failoverPriority: index
+      //   isZoneRedundant: false
+      //   locationName: stampLocation
+      // }
+    ]
+    minimalTlsVersion: 'Tls12'
+    networkAclBypass: 'None'
+    networkAclBypassResourceIds: []
+    publicNetworkAccess: 'Disabled'
+    virtualNetworkRules: []
+  }
+}
+
+resource cosmosDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'send-to-shared-log-analytics'
+  scope: cosmosAccount
+  properties: {
+    logs: [
+      {
+        categoryGroup: 'allLogs'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+    workspaceId: logAnalytics.outputs.id
+  }
+}
+
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2025-11-01' = if (createContainerRegistry) {
   name: containerRegistryName
   location: location
@@ -450,9 +544,15 @@ output azureMonitorWorkspaceLocation string = azureMonitorWorkspace.location
 output managedGrafanaId string = managedGrafana.id
 output managedGrafanaName string = managedGrafana.name
 output managedGrafanaEndpoint string = managedGrafana.properties.endpoint
+output cosmosAccountId string = cosmosAccount.id
+output cosmosAccountName string = cosmosAccount.name
+output cosmosEndpoint string = cosmosAccount.properties.documentEndpoint
 output containerRegistryId string = resolvedContainerRegistryId
 output containerRegistryName string = resolvedContainerRegistryName
 output containerRegistryEndpoint string = resolvedContainerRegistryEndpoint
 output apiManagementId string = apiManagement.id
 output apiManagementName string = apiManagement.name
 output apiManagementGatewayUrl string = apiManagement.properties.gatewayUrl
+output communicationServicesName string = communicationServices.name
+output communicationSystemTopicId string = communicationSystemTopic.id
+output communicationServicesImmutableResourceId string = communicationServices.properties.immutableResourceId

@@ -23,9 +23,6 @@
     "aiDeploymentsLocation": {
       "value": "${AZURE_AI_DEPLOYMENTS_LOCATION}"
     },
-    "resourceTokenSalt": {
-      "value": "${AZD_RESOURCE_TOKEN_SALT=}"
-    },
     "principalId": {
       "value": "${AZURE_PRINCIPAL_ID}"
     },
@@ -90,7 +87,7 @@
       "value": "${AZURE_STORAGE_SKU=Standard_ZRS}"
     },
     "redisSkuName": {
-      "value": "${AZURE_REDIS_SKU=Balanced_B1}"
+      "value": "${AZURE_REDIS_SKU=Balanced_B10}"
     },
     "kubernetesVersion": {
       "value": "${AZURE_AKS_VERSION=1.36.3}"
@@ -148,6 +145,9 @@
     },
     "botMessagingEndpoint": {
       "value": "${AZURE_BOT_MESSAGING_ENDPOINT=}"
+    },
+    "cosmosAzureRegions": {
+      "value": "${AZURE_COSMOS_AZURE_REGIONS=}"
     }
   }
 }
