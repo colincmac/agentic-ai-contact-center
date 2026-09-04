@@ -11,9 +11,10 @@
 	under .azure/<environment>/ so Disable can restore them. Disable removes only
 	IP rules added by this script. Status performs no writes.
 
-	This script intentionally changes only the Foundry account needed for
-	project-level calls from https://ai.azure.com. It does not expose private
-	Storage, Cosmos DB, Search, Key Vault, or other service dependencies.
+	This script intentionally changes only the first configured regional Foundry
+	account published through the compatibility AZD outputs. Use AccountName and
+	ResourceGroupName to target another region. It does not expose private Storage,
+	Cosmos DB, Search, Key Vault, or other service dependencies.
 
 .PARAMETER Action
 	Enable, Disable, or Status. The default is Enable.
@@ -258,7 +259,10 @@ if (-not $SubscriptionId) {
 
 if (-not $AccountName -and -not $ResourceGroupName) {
 	$AccountName = Get-OptionalAzdValue -Name 'AZURE_AI_ACCOUNT_NAME' -Environment $EnvironmentName
-	$ResourceGroupName = Get-OptionalAzdValue -Name 'AZURE_PLATFORM_RESOURCE_GROUP' -Environment $EnvironmentName
+	$ResourceGroupName = Get-OptionalAzdValue -Name 'AZURE_AI_ACCOUNT_RESOURCE_GROUP' -Environment $EnvironmentName
+	if (-not $ResourceGroupName) {
+		$ResourceGroupName = Get-OptionalAzdValue -Name 'AZURE_PLATFORM_RESOURCE_GROUP' -Environment $EnvironmentName
+	}
 	if (-not $AccountName -or -not $ResourceGroupName) {
 		$AccountName = $null
 		$ResourceGroupName = $null
