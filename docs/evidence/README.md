@@ -14,9 +14,11 @@ derived from here.
 
 ## Current state
 
-No evidence records have been migrated into this repository yet. Architecture
-capacity figures are modeled targets, and implementation behavior remains
-unverified here until the demonstrator and its tests are added under `code/`.
+The [.NET implementation and tests](../../code/ContactCenter.slnx) are present.
+A [measured local functional validation record](2026-09-08-code-adoption-validation.md)
+captures a focused 67-test run. It does not validate live telephony, model
+inference, distributed deployment, authentication policy suitability, or scale.
+Architecture capacity figures remain modeled targets.
 
 Known gaps include:
 
@@ -24,8 +26,9 @@ Known gaps include:
 - no concurrent-call or per-pod WebSocket benchmark;
 - no multi-cluster failover or region-drain exercise;
 - no deployed monitoring validation against real traffic; and
-- no repository implementation tests for degradation, ownership leases, or
-  folded call-state behavior.
+- no demonstrated end-to-end degradation/ownership/state behavior under
+  distributed failures. Repository unit tests exist for these components,
+  but their existence or success is not a substitute for those drills.
 
 ## Creating a record
 
@@ -35,5 +38,6 @@ Known gaps include:
 
 ## Index
 
-No evidence records are currently available. Add each reviewed record here
-when real measurements, drills, models, or explicit assumptions are captured.
+| Record | Class | Scope |
+| --- | --- | --- |
+| [2026-09-08 code-adoption validation](2026-09-08-code-adoption-validation.md) | `measured` | Focused local .NET unit tests; not performance or end-to-end readiness evidence |

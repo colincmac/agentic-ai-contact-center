@@ -4,7 +4,7 @@ import grpc
 import warnings
 
 from . import biometrics_pb2 as biometrics__pb2
-GRPC_GENERATED_VERSION = '1.76.0'
+GRPC_GENERATED_VERSION = '1.83.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -24,7 +24,7 @@ if _version_not_supported:
     )
 
 
-class BiometricServiceStub(object):
+class BiometricServiceStub:
     """Biometric service for speaker enrollment and verification
     """
 
@@ -46,7 +46,7 @@ class BiometricServiceStub(object):
                 _registered_method=True)
 
 
-class BiometricServiceServicer(object):
+class BiometricServiceServicer:
     """Biometric service for speaker enrollment and verification
     """
 
@@ -87,7 +87,7 @@ def add_BiometricServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class BiometricService(object):
+class BiometricService:
     """Biometric service for speaker enrollment and verification
     """
 

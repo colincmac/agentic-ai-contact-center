@@ -2,7 +2,9 @@
 
 A single pane of glass for calls that traverse **Teams Phone → Azure Communication Services (ACS, via Teams Phone Extensibility) → the IVR app → Dynamics 365 Contact Center**, with end-to-end call correlation across every boundary.
 
-This folder is the implementation reference for that observability plane. Start here, then follow the links.
+This folder is the design reference for that observability plane. The monitoring
+library is present, but the composed application and cross-platform correlation
+are not yet validated end to end. Start here, then follow the links.
 
 | Document | What it covers |
 |---|---|
@@ -55,11 +57,25 @@ flowchart LR
 
 ## What is implemented in this repo
 
-- **`Agents.AI.Monitoring`** — the observability library: the correlation contract, the ambient accessor + store, the OpenTelemetry enrichment processor, the D365 context-variable map, the transfer-header builder, and the shipped KQL + PromQL + Grafana assets. The Grafana assets are a **reusable panel library** (`Dashboards/panels/`) composed by `build/assemble-dashboards.ps1` into several purpose-built dashboards (fleet live-ops, telephony/ACS, GenAI/realtime, transfer/routing, platform health) plus the original E2E single pane — see [dashboards.md](dashboards.md).
-- **`ServiceDefaults.ConfigureOpenTelemetry`** calls `AddCallCorrelation()`, so every service stamps the canonical ids onto its spans/logs automatically.
-- **The IVR ingress** (`CallingApi`) mints the `e2e_call_id` at the ACS `IncomingCall`, persists it, and re-hydrates it on every callback.
-- **The transfer path** (`AcsCallControl` + `CallControlTools`) carries the `context_id` to Dynamics 365 as ACS custom-calling-context headers.
-- **`AppHost.AddMonitoring()`** runs the OSS OpenTelemetry stack for local development and is a no-op in publish mode (where Azure Monitor + Managed Grafana take over).
+- **[Monitoring library](../../code/Agents.AI.Monitoring/)** - source for the
+  correlation and observability integration, plus reference assets. See
+  [dashboards.md](dashboards.md) for the dashboard design; source presence is
+  not deployment evidence.
+- **[Service defaults](../../code/ContactCenter.ServiceDefaults/Extensions.cs)** -
+  generic OpenTelemetry instrumentation and optional OTLP export. The current
+  helper does **not** call `AddCallCorrelation()` or automatically compose the
+  full contact-center enrichment pipeline.
+- **[Standard contact-center facade](../../code/Agents.AI.ContactCenter/DependencyInjection/StandardContactCenterExtensions.cs)** -
+  registers correlation services, but a host must still initialize and propagate
+  call context at ingress, callbacks, media connections, and transfer boundaries.
+- **[AppHost](../../code/ContactCenter.AppHost/AppHost.cs)** - currently empty
+  apart from creating and running the distributed application. It does not
+  register `CallingApi`, a contact-center service, or `AddMonitoring()`.
+
+The rest of this folder describes the target integration. Verify it against the
+[current implementation map](../README.md#current-implementation) and
+[evidence limitations](../evidence/2026-09-08-code-adoption-validation.md#limitations)
+before relying on automatic enrichment or an end-to-end timeline.
 
 ## Scope
 

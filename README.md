@@ -58,8 +58,15 @@ interactions.
 | TPE setup automation | Available for review and environment-specific testing |
 | Monitoring model, KQL, and dashboard design | Reference artifacts; deployment assets are not fully migrated |
 | Bicep infrastructure | Subscription-scope platform and N-region application-stamp template available; Azure deployment evidence is not yet recorded |
-| .NET demonstrator and implementation tests | Pending migration to `code/` |
+| .NET libraries and implementation tests | Present in [`code/ContactCenter.slnx`](code/ContactCenter.slnx); focused local validation is [recorded](docs/evidence/2026-09-08-code-adoption-validation.md) |
+| Runnable contact-center host | Not yet composed; [`ContactCenter.AppHost`](code/ContactCenter.AppHost/AppHost.cs) registers no application services |
+| Python voice biometrics | [Optional gRPC prototype](code/voice-biometrics/); production inference and authentication assurance are not validated |
 | Measured performance and failover evidence | Not yet recorded in this repository |
+
+See the [current implementation map](docs/README.md#current-implementation)
+before adopting the code. Present libraries and passing unit tests do not mean
+that all documented flows, fallback tiers, or authentication policies are wired
+and ready for customer use.
 
 ## Using the artifacts
 
