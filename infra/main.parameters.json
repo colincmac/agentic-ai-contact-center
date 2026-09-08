@@ -1,0 +1,153 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "${AZURE_ENV_NAME}"
+    },
+    "platformResourceGroupName": {
+      "value": "${AZURE_PLATFORM_RESOURCE_GROUP=zava-platform}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "additionalLocationsJson": {
+      "value": "${AZURE_ADDITIONAL_LOCATIONS=[]}"
+    },
+    "aiFoundryResourceName": {
+      "value": "${AZURE_AI_ACCOUNT_NAME=}"
+    },
+    "aiFoundryProjectName": {
+      "value": "${AZURE_AI_PROJECT_NAME=}"
+    },
+    "aiFoundryProjectBaseName": {
+      "value": "${AZURE_AI_PROJECT_BASE_NAME=}"
+    },
+    "principalId": {
+      "value": "${AZURE_PRINCIPAL_ID}"
+    },
+    "principalType": {
+      "value": "${AZURE_PRINCIPAL_TYPE}"
+    },
+    "aiProjectDeploymentsJson": {
+      "value": "${AI_PROJECT_DEPLOYMENTS=[]}"
+    },
+    "aiProjectConnectionsJson": {
+      "value": "${AI_PROJECT_CONNECTIONS=[]}"
+    },
+    "aiProjectConnectionCredentialsJson": {
+      "value": "${AI_PROJECT_CONNECTION_CREDENTIALS={}}"
+    },
+    "aiProjectDependentResourcesJson": {
+      "value": "${AI_PROJECT_DEPENDENT_RESOURCES=[]}"
+    },
+    "enableMonitoring": {
+      "value": "${ENABLE_MONITORING=true}"
+    },
+    "enableHostedAgents": {
+      "value": "${ENABLE_HOSTED_AGENTS=false}"
+    },
+    "enableCapabilityHost": {
+      "value": "${ENABLE_CAPABILITY_HOST=true}"
+    },
+    "useExistingAiProject": {
+      "value": "${USE_EXISTING_AI_PROJECT=false}"
+    },
+    "existingContainerRegistryResourceId": {
+      "value": "${EXISTING_AZURE_CONTAINER_REGISTRY_RESOURCE_ID=}"
+    },
+    "existingContainerRegistryEndpoint": {
+      "value": "${EXISTING_AZURE_CONTAINER_REGISTRY_ENDPOINT=}"
+    },
+    "existingAcrConnectionName": {
+      "value": "${AZURE_AI_PROJECT_ACR_CONNECTION_NAME=}"
+    },
+    "existingApplicationInsightsConnectionString": {
+      "value": "${APPLICATIONINSIGHTS_CONNECTION_STRING=}"
+    },
+    "existingApplicationInsightsResourceId": {
+      "value": "${APPLICATIONINSIGHTS_RESOURCE_ID=}"
+    },
+    "existingAppInsightsConnectionName": {
+      "value": "${APPLICATIONINSIGHTS_CONNECTION_NAME=}"
+    },
+    "apiManagementPublisherName": {
+      "value": "${AZURE_APIM_PUBLISHER_NAME=Zava Financial}"
+    },
+    "apiManagementPublisherEmail": {
+      "value": "${AZURE_APIM_PUBLISHER_EMAIL=platform@zavafinancial.example}"
+    },
+    "deployBastion": {
+      "value": "${DEPLOY_AZURE_BASTION=true}"
+    },
+    "communicationServicesDataLocation": {
+      "value": "${AZURE_COMMUNICATION_SERVICES_DATA_LOCATION=United States}"
+    },
+    "storageSkuName": {
+      "value": "${AZURE_STORAGE_SKU=Standard_ZRS}"
+    },
+    "redisSkuName": {
+      "value": "${AZURE_REDIS_SKU=Balanced_B10}"
+    },
+    "kubernetesVersion": {
+      "value": "${AZURE_AKS_VERSION=1.36.3}"
+    },
+    "aksAvailabilityZonesJson": {
+      "value": "${AZURE_AKS_AVAILABILITY_ZONES=[]}"
+    },
+    "aksAdminGroupObjectIdsJson": {
+      "value": "${AZURE_AKS_ADMIN_GROUP_OBJECT_IDS=[]}"
+    },
+    "systemNodeVmSize": {
+      "value": "${AZURE_AKS_SYSTEM_NODE_VM_SIZE=Standard_D4ds_v7}"
+    },
+    "systemNodeMinCount": {
+      "value": "${AZURE_AKS_SYSTEM_NODE_MIN_COUNT=2}"
+    },
+    "systemNodeMaxCount": {
+      "value": "${AZURE_AKS_SYSTEM_NODE_MAX_COUNT=3}"
+    },
+    "voiceNodeVmSize": {
+      "value": "${AZURE_AKS_VOICE_NODE_VM_SIZE=Standard_D8ds_v7}"
+    },
+    "voiceNodeMinCount": {
+      "value": "${AZURE_AKS_VOICE_NODE_MIN_COUNT=1}"
+    },
+    "voiceNodeMaxCount": {
+      "value": "${AZURE_AKS_VOICE_NODE_MAX_COUNT=3}"
+    },
+    "deployIstioGatewayNodePool": {
+      "value": "${DEPLOY_AKS_ISTIO_GATEWAY_POOL=false}"
+    },
+    "istioGatewayNodeVmSize": {
+      "value": "${AZURE_AKS_ISTIO_NODE_VM_SIZE=Standard_D8ds_v7}"
+    },
+    "istioGatewayNodeMinCount": {
+      "value": "${AZURE_AKS_ISTIO_NODE_MIN_COUNT=1}"
+    },
+    "istioGatewayNodeMaxCount": {
+      "value": "${AZURE_AKS_ISTIO_NODE_MAX_COUNT=3}"
+    },
+    "deployGpuNodePool": {
+      "value": "${DEPLOY_AKS_GPU_POOL=false}"
+    },
+    "gpuNodeVmSize": {
+      "value": "${AZURE_AKS_GPU_NODE_VM_SIZE=Standard_NC4as_T4_v3}"
+    },
+    "gpuNodeMinCount": {
+      "value": "${AZURE_AKS_GPU_NODE_MIN_COUNT=0}"
+    },
+    "gpuNodeMaxCount": {
+      "value": "${AZURE_AKS_GPU_NODE_MAX_COUNT=3}"
+    },
+    "enableDefender": {
+      "value": "${ENABLE_AKS_DEFENDER=true}"
+    },
+    "botMessagingEndpoint": {
+      "value": "${AZURE_BOT_MESSAGING_ENDPOINT=}"
+    },
+    "cosmosAzureRegions": {
+      "value": "${AZURE_COSMOS_AZURE_REGIONS=}"
+    }
+  }
+}

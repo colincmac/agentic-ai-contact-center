@@ -343,7 +343,7 @@ if (ShouldRunPhase 'Phase2') {
     Write-Host "Connecting to Microsoft Teams ($TeamsTenantId)..." -ForegroundColor Cyan
     if (-not $WhatIf) {
         Connect-MicrosoftTeams -TenantId $TeamsTenantId | Out-Null
-        Connect-Graph -Scopes User.ReadWrite.All, Organization.Read.All -NoWelcome | Out-Null
+        Connect-Graph -TenantId $TeamsTenantId -Scopes User.ReadWrite.All, Organization.Read.All -ClientTimeout 30 -NoWelcome | Out-Null
     }
 
     $teamsResourceAccount = $null
@@ -421,19 +421,31 @@ if (ShouldRunPhase 'Phase3') {
         try { Get-CsOnlineUser -Identity $raUpn -ErrorAction Stop | Out-Null }
         catch {
             Connect-MicrosoftTeams -TenantId $TeamsTenantId | Out-Null
-            Connect-Graph -Scopes User.ReadWrite.All, Organization.Read.All -NoWelcome | Out-Null
         }
+        Connect-Graph -TenantId $TeamsTenantId -Scopes User.ReadWrite.All, Organization.Read.All -ClientTimeout 30 -NoWelcome | Out-Null
 
         # 3a. Wait for the resource account user object to land in Entra ID.
         Write-Host "Waiting for resource account to appear in Entra ID..." -ForegroundColor Cyan
         $resourceAccountObject = $null
         for ($retry = 1; $retry -le 20; $retry++) {
+            Write-Host "  Attempt $retry/20 — querying Microsoft Graph..." -ForegroundColor DarkCyan
             try {
                 $resourceAccountObject = Get-MgUser -UserId $raUpn -ErrorAction Stop
-                if ($resourceAccountObject -and $resourceAccountObject.UserPrincipalName -eq $raUpn) { break }
-            } catch { }
-            Write-Host "  Attempt $retry/20 — not yet visible. Waiting 15s..." -ForegroundColor DarkCyan
-            Start-Sleep 15
+                if ($resourceAccountObject -and $resourceAccountObject.UserPrincipalName -eq $raUpn) {
+                    Write-Host "Resource account is visible in Entra ID." -ForegroundColor Green
+                    break
+                }
+                $resourceAccountObject = $null
+                Write-Warning "Attempt $retry/20 returned a user that did not match $raUpn."
+            }
+            catch {
+                $resourceAccountObject = $null
+                Write-Warning "Attempt $retry/20 failed: $($_.Exception.Message)"
+            }
+            if ($retry -lt 20) {
+                Write-Host "  Waiting 15s before retrying..." -ForegroundColor DarkCyan
+                Start-Sleep 15
+            }
         }
         if (-not $resourceAccountObject) {
             throw "Resource account $raUpn did not appear in Entra ID after 20 attempts."
@@ -507,24 +519,52 @@ Acquire it via Teams Admin Center → Voice → Phone numbers, then re-run Phase
         else {
             Write-Host "Assigning phone number $TeamsPhoneNumber ($PhoneNumberType)..." -ForegroundColor Cyan
             $licenseAssigned = $false
-            for ($retry = 1; $retry -le 10 -and -not $licenseAssigned; $retry++) {
+            for ($retry = 1; $retry -le 20 -and -not $licenseAssigned; $retry++) {
                 try {
-                    $licenseAssigned = $TeamsPhoneRASkuId -in (Get-MgUserLicenseDetail -UserId $raUpn | Select-Object -ExpandProperty SkuId)
+                    $visibleSkuIds = @(
+                        Get-MgUserLicenseDetail -UserId $raUpn -ErrorAction Stop |
+                            ForEach-Object { [string]$_.SkuId }
+                    )
+                    $licenseAssigned = $visibleSkuIds -contains [string]$TeamsPhoneRASkuId
+                    if ($licenseAssigned) {
+                        Write-Host "Teams Phone Resource Account license is visible in Microsoft Graph." -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "  Attempt $retry/20 — license not yet visible." -ForegroundColor Yellow
+                    }
                 }
                 catch {
-                    Write-Host "  Attempt $retry/10 — license not yet visible. Waiting 15s..." -ForegroundColor Yellow
+                    Write-Warning "Attempt $retry/20 failed while checking the license: $($_.Exception.Message)"
+                }
+                if (-not $licenseAssigned -and $retry -lt 20) {
+                    Write-Host "  Waiting 15s before retrying..." -ForegroundColor DarkCyan
                     Start-Sleep 15
                 }
             }
-            if (-not $licenseAssigned)
-            {
-                throw "The Teams Phone Resource Account license does not appear to be assigned to $raUpn after multiple retries. Please verify that the license has been applied in Microsoft 365 Admin Center and is visible via Get-MgUserLicenseDetail before re-running this script."
+            if (-not $licenseAssigned) {
+                throw "The Teams Phone Resource Account license does not appear to be assigned to $raUpn after 20 attempts. Please verify that the license has been applied in Microsoft 365 Admin Center and is visible via Get-MgUserLicenseDetail before re-running this script."
             }
 
-            Set-CsPhoneNumberAssignment `
-                -Identity $raUpn `
-                -PhoneNumber $TeamsPhoneNumber `
-                -PhoneNumberType $PhoneNumberType
+            $phoneAssigned = $false
+            for ($retry = 1; $retry -le 10 -and -not $phoneAssigned; $retry++) {
+                try {
+                    Set-CsPhoneNumberAssignment `
+                        -Identity $raUpn `
+                        -PhoneNumber $TeamsPhoneNumber `
+                        -PhoneNumberType $PhoneNumberType
+                    $phoneAssigned = $true
+                }
+                catch {
+                    Write-Warning "Phone assignment attempt $retry/10 failed: $($_.Exception.Message)"
+                    if ($retry -lt 10) {
+                        Write-Host "  Waiting 15s for the license to propagate to Teams..." -ForegroundColor DarkCyan
+                        Start-Sleep 15
+                    }
+                }
+            }
+            if (-not $phoneAssigned) {
+                throw "Phone number assignment failed after 10 attempts. The license is visible in Microsoft Graph but may not have propagated to Teams."
+            }
             Write-Host "Phone number assigned." -ForegroundColor Green
         }
 

@@ -11,11 +11,10 @@ onboarding scenario. It is a reusable reference, not a claim that one topology
 or capacity model fits every deployment.
 
 > [!IMPORTANT]
-> The architecture and documentation are available now. The demonstrator .NET
-> solution has not yet been migrated into [`code/`](code/), and
-> [`infra/main.bicep`](infra/main.bicep) is not yet a deployable accelerator
-> template. Treat scaling figures as modeled targets unless an evidence record
-> explicitly says otherwise.
+> The [`infra/main.bicep`](infra/main.bicep) template provisions the modeled Zava
+> Financial landing-zone infrastructure, but it has not been deployed or load
+> tested as evidence. Treat scaling figures as modeled targets unless an evidence
+> record explicitly says otherwise.
 
 ## What is here
 
@@ -58,7 +57,7 @@ interactions.
 | Architecture views and ADRs | Available; open decisions remain marked `Proposed` or `Draft` |
 | TPE setup automation | Available for review and environment-specific testing |
 | Monitoring model, KQL, and dashboard design | Reference artifacts; deployment assets are not fully migrated |
-| Bicep infrastructure | Placeholder, not deployable |
+| Bicep infrastructure | Subscription-scope platform and N-region application-stamp template available; Azure deployment evidence is not yet recorded |
 | .NET demonstrator and implementation tests | Pending migration to `code/` |
 | Measured performance and failover evidence | Not yet recorded in this repository |
 
@@ -75,32 +74,44 @@ Do not treat sample limits, SKUs, retry values, or replica counts as universal
 recommendations. Validate them against current Azure service documentation,
 regional availability, quota, security policy, and workload evidence.
 
-## Validation
+## Provisioning the Azure infrastructure
 
-The repository uses the `solution-artifact-template` v1.0.0 contract to keep
-its manifest and publication brief coherent.
+The AZD template deploys `zava-platform` plus one
+`zava-contact-center-<region>` application landing-zone stamp and Microsoft
+Foundry project in every configured region. Add regions by setting
+`AZURE_ADDITIONAL_LOCATIONS` to a JSON array before provisioning:
 
 ```powershell
-npm ci
-npm test
-npm run validate:initialized
+azd env set AZURE_LOCATION eastus2
+azd env set AZURE_ADDITIONAL_LOCATIONS '["westus3"]'
+azd provision
 ```
 
-These checks validate the machine-readable publication contract and its local
-references. They do not prove that the Azure topology has been deployed or
-load tested.
+Each regional AI Services account has a private endpoint in its regional spoke.
+The centralized private DNS zones cover Foundry, OpenAI, and the custom
+`cognitiveservices.azure.com` endpoint used by speech-to-text, text-to-speech,
+and Voice Live. `AZURE_AI_PROJECTS_JSON` contains the regional project and
+endpoint inventory; the singular AI outputs remain aliases for the first
+configured region. Set `AZURE_AI_PROJECT_BASE_NAME` to override the generated
+regional project-name base.
 
-## Publication model
+Existing environments use incremental deployments, so provisioning the regional
+projects does not delete a previous platform-hosted AI account. Remove that
+account only after workloads have moved to the regional endpoints and the
+regional projects have been validated.
 
-This repository owns the canonical solution artifacts. The external blog
-repository, [`colincmac/ctrlaltarchitect`](https://github.com/colincmac/ctrlaltarchitect),
-may consume the reviewed
-[`docs/publishing/blog-brief.yaml`](docs/publishing/blog-brief.yaml) at authoring
-time to create a separate post draft. The blog has no runtime or build-time
-dependency on this repository, and no automated publishing occurs here.
+The default AKS node sizes and counts follow the accepted architecture decisions
+and can be expensive. Use the `AZURE_AKS_*` environment variables declared in
+[`infra/main.parameters.json`](infra/main.parameters.json) to select
+region-supported SKUs and demo-appropriate capacity. Provisioning requires
+subscription-scope resource deployment and role-assignment permissions.
 
-Customer names, engagement details, environment identifiers, secrets, private
-endpoints, and unsupported outcome claims are excluded from publication.
+The platform resource group also contains one Azure Monitor workspace and one
+Azure Managed Grafana workspace. Every regional AKS cluster enables the managed
+Prometheus metrics add-on and receives its own data collection endpoint, rule,
+and cluster association. AZD publishes the Grafana URL as
+`AZURE_MANAGED_GRAFANA_ENDPOINT`.
+
 
 ## Contributing
 
