@@ -76,17 +76,29 @@ regional availability, quota, security policy, and workload evidence.
 
 ## Provisioning the Azure infrastructure
 
-The AZD template deploys `zava-platform` plus a primary
-`zava-contact-center-<region>` application landing-zone stamp. Add regional
-stamps by setting `AZURE_ADDITIONAL_LOCATIONS` to a JSON array before
-provisioning:
+The AZD template deploys `zava-platform` plus one
+`zava-contact-center-<region>` application landing-zone stamp and Microsoft
+Foundry project in every configured region. Add regions by setting
+`AZURE_ADDITIONAL_LOCATIONS` to a JSON array before provisioning:
 
 ```powershell
 azd env set AZURE_LOCATION eastus2
-azd env set AZURE_AI_DEPLOYMENTS_LOCATION eastus2
 azd env set AZURE_ADDITIONAL_LOCATIONS '["westus3"]'
 azd provision
 ```
+
+Each regional AI Services account has a private endpoint in its regional spoke.
+The centralized private DNS zones cover Foundry, OpenAI, and the custom
+`cognitiveservices.azure.com` endpoint used by speech-to-text, text-to-speech,
+and Voice Live. `AZURE_AI_PROJECTS_JSON` contains the regional project and
+endpoint inventory; the singular AI outputs remain aliases for the first
+configured region. Set `AZURE_AI_PROJECT_BASE_NAME` to override the generated
+regional project-name base.
+
+Existing environments use incremental deployments, so provisioning the regional
+projects does not delete a previous platform-hosted AI account. Remove that
+account only after workloads have moved to the regional endpoints and the
+regional projects have been validated.
 
 The default AKS node sizes and counts follow the accepted architecture decisions
 and can be expensive. Use the `AZURE_AKS_*` environment variables declared in

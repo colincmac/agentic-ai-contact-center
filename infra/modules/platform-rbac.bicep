@@ -3,9 +3,6 @@ targetScope = 'resourceGroup'
 @description('Name of the platform ACR.')
 param containerRegistryName string
 
-@description('Name of the Microsoft Foundry AI Services account.')
-param aiServicesAccountName string
-
 @description('Name of the shared Application Insights component.')
 param applicationInsightsName string
 
@@ -18,9 +15,6 @@ param controlPlanePrincipalId string
 @description('Principal ID of the AKS kubelet identity.')
 param kubeletPrincipalId string
 
-@description('Principal ID of the AKS workload identity.')
-param workloadPrincipalId string
-
 @description('Principal ID of the Foundry project identity.')
 param foundryProjectPrincipalId string
 
@@ -29,10 +23,6 @@ param assignFoundryProjectLogReader bool = false
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2025-11-01' existing = {
   name: containerRegistryName
-}
-
-resource aiServicesAccount 'Microsoft.CognitiveServices/accounts@2026-05-01' existing = {
-  name: aiServicesAccountName
 }
 
 resource applicationInsights 'Microsoft.Insights/components@2020-02-02' existing = {
@@ -50,16 +40,6 @@ resource kubeletAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     principalId: kubeletPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-  }
-}
-
-resource workloadAiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: aiServicesAccount
-  name: guid(aiServicesAccount.id, workloadPrincipalId, 'Cognitive Services User')
-  properties: {
-    principalId: workloadPrincipalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
   }
 }
 

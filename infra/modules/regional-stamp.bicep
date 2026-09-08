@@ -289,7 +289,7 @@ resource spokeToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeer
   name: 'peer-to-platform'
   properties: {
     allowForwardedTraffic: true
-    allowGatewayTransit: false
+    allowGatewayTransit: true
     allowVirtualNetworkAccess: true
     remoteVirtualNetwork: {
       id: hubVirtualNetworkId

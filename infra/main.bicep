@@ -17,20 +17,20 @@ param location string
 @description('JSON array of additional Azure regions. The primary location is added automatically.')
 param additionalLocationsJson string = '[]'
 
-@description('Region used for Microsoft Foundry model deployments when it differs from the primary region.')
-param aiDeploymentsLocation string = location
-
 @description('ID of the user or application assigned deployment-time data-plane roles.')
 param principalId string
 
 @description('Principal type of the deployment principal.')
 param principalType string
 
-@description('Optional existing AI Services account name in zava-platform.')
+@description('Existing AI Services account name used when useExistingAiProject is enabled.')
 param aiFoundryResourceName string = ''
 
-@description('Optional name of the Microsoft Foundry project. An environment-specific name is generated when empty.')
+@description('Existing Microsoft Foundry project name used when useExistingAiProject is enabled.')
 param aiFoundryProjectName string = ''
+
+@description('Optional base name for newly provisioned regional Microsoft Foundry projects.')
+param aiFoundryProjectBaseName string = ''
 
 @description('JSON array of model deployments.')
 param aiProjectDeploymentsJson string = '[]'
@@ -54,7 +54,7 @@ param enableCapabilityHost bool = true
 @description('Enable monitoring for the Foundry project.')
 param enableMonitoring bool = true
 
-@description('Reference an existing Microsoft Foundry project instead of provisioning a new project.')
+@description('Reference an existing Microsoft Foundry project for the first region; projects for additional regions are provisioned.')
 param useExistingAiProject bool = false
 
 @description('Optional existing Premium ACR resource ID. When empty, the platform module creates a registry.')
@@ -165,7 +165,12 @@ var stampLocations = union([
 ], additionalLocations)
 var aksAvailabilityZones = json(aksAvailabilityZonesJson)
 var aksAdminGroupObjectIds = json(aksAdminGroupObjectIdsJson)
-var resolvedAiFoundryProjectName = empty(aiFoundryProjectName) ? 'ai-project-${environmentName}' : aiFoundryProjectName
+var resolvedAiFoundryProjectBaseName = empty(aiFoundryProjectBaseName)
+  ? 'ai-project-${environmentName}'
+  : aiFoundryProjectBaseName
+var resolvedExistingAiFoundryProjectName = empty(aiFoundryProjectName)
+  ? resolvedAiFoundryProjectBaseName
+  : aiFoundryProjectName
 var normalizedEnvironmentName = toLower(environmentName)
 var compactEnvironmentName = replace(normalizedEnvironmentName, '-', '')
 var stampNamingTokens = [
@@ -223,14 +228,6 @@ var azureMonitorWorkspaceName = take('amw-zava-shared-${shortLocation}', 63)
 var managedGrafanaName = take('amg-zava-${normalizedEnvironmentName}', 23)
 var hubVirtualNetworkName = 'vnet-connectivity-${shortLocation}'
 
-var aiAccountId = useExistingAiProject ? existingAiProject.outputs.accountId : aiProject.outputs.accountId
-var aiAccountName = useExistingAiProject ? existingAiProject.outputs.aiServicesAccountName : aiProject.outputs.aiServicesAccountName
-var aiProjectId = useExistingAiProject ? existingAiProject.outputs.projectId : aiProject.outputs.projectId
-var aiProjectName = useExistingAiProject ? existingAiProject.outputs.projectName : aiProject.outputs.projectName
-var aiProjectPrincipalId = useExistingAiProject ? existingAiProject.outputs.projectPrincipalId : aiProject.outputs.projectPrincipalId
-var aiProjectEndpoint = useExistingAiProject ? existingAiProject.outputs.AZURE_AI_PROJECT_ENDPOINT : aiProject.outputs.AZURE_AI_PROJECT_ENDPOINT
-var openAiEndpoint = useExistingAiProject ? existingAiProject.outputs.AZURE_OPENAI_ENDPOINT : aiProject.outputs.AZURE_OPENAI_ENDPOINT
-
 var cosmosAccountName = take('cosmos-zava-contact-center-${normalizedEnvironmentName}', 44)
 var botServiceName = take('bot-zava-contact-center-${normalizedEnvironmentName}', 64)
 
@@ -269,76 +266,79 @@ var resolvedApplicationInsightsResourceId = empty(existingApplicationInsightsRes
   ? platform.outputs.applicationInsightsId
   : existingApplicationInsightsResourceId
 
-module aiProject 'core/ai/ai-project.bicep' = if (!useExistingAiProject) {
-  scope: platformResourceGroup
-  name: 'ai-project'
-  params: {
-    additionalDependentResources: aiProjectDependentResources
-    aiFoundryProjectName: resolvedAiFoundryProjectName
-    connectionCredentials: aiProjectConnectionCredentials
-    connections: aiProjectConnections
-    deployments: aiProjectDeployments
-    enableCapabilityHost: enableCapabilityHost
-    enableHostedAgents: enableHostedAgents
-    enableMonitoring: enableMonitoring
-    existingAcrConnectionName: existingAcrConnectionName
-    existingAiAccountName: aiFoundryResourceName
-    existingApplicationInsightsConnectionString: resolvedApplicationInsightsConnectionString
-    existingApplicationInsightsResourceId: resolvedApplicationInsightsResourceId
-    existingAppInsightsConnectionName: existingAppInsightsConnectionName
-    existingContainerRegistryEndpoint: platform.outputs.containerRegistryEndpoint
-    existingContainerRegistryResourceId: platform.outputs.containerRegistryId
-    environmentName: environmentName
-    location: aiDeploymentsLocation
-    networkAclsDefaultAction: enableHostedAgents ? 'Allow' : 'Deny'
-    principalId: principalId
-    principalType: principalType
-    publicNetworkAccess: enableHostedAgents ? 'Enabled' : 'Disabled'
-    tags: union(baseTags, {
-      resourceGroup: platformResourceGroup.name
-    })
+module regionalAiProjects 'modules/regional-ai-project.bicep' = [
+  for (stampLocation, index) in stampLocations: {
+    scope: resourceGroup((useExistingAiProject && index == 0) ? platformResourceGroup.name : regionalResourceGroups[index].name)
+    name: 'regional-ai-project-${stampNamingTokens[index]}'
+    params: {
+      additionalDependentResources: aiProjectDependentResources
+      aiFoundryProjectName: (useExistingAiProject && index == 0)
+        ? resolvedExistingAiFoundryProjectName
+        : take('${getShortLocation(stampLocation)}-${resolvedAiFoundryProjectBaseName}', 64)
+      connectionCredentials: aiProjectConnectionCredentials
+      connections: aiProjectConnections
+      deployments: aiProjectDeployments
+      enableCapabilityHost: enableCapabilityHost
+      enableHostedAgents: enableHostedAgents
+      enableMonitoring: enableMonitoring
+      environmentName: '${stampNamingTokens[index]}-${environmentName}'
+      existingAcrConnectionName: (useExistingAiProject && index == 0) ? existingAcrConnectionName : ''
+      existingAiAccountName: (useExistingAiProject && index == 0) ? aiFoundryResourceName : ''
+      existingApplicationInsightsConnectionString: resolvedApplicationInsightsConnectionString
+      existingApplicationInsightsResourceId: resolvedApplicationInsightsResourceId
+      existingAppInsightsConnectionName: (useExistingAiProject && index == 0) ? existingAppInsightsConnectionName : ''
+      existingContainerRegistryEndpoint: platform.outputs.containerRegistryEndpoint
+      existingContainerRegistryResourceId: platform.outputs.containerRegistryId
+      location: stampLocation
+      networkAclsDefaultAction: enableHostedAgents ? 'Allow' : 'Deny'
+      principalId: principalId
+      principalType: principalType
+      publicNetworkAccess: enableHostedAgents ? 'Enabled' : 'Disabled'
+      tags: union(baseTags, {
+        resourceGroup: (useExistingAiProject && index == 0)
+          ? platformResourceGroup.name
+          : regionalResourceGroups[index].name
+        region: stampLocation
+      })
+      useExistingAiProject: useExistingAiProject && index == 0
+    }
   }
-}
+]
 
-module existingAiProject 'core/ai/existing-ai-project.bicep' = if (useExistingAiProject) {
-  scope: platformResourceGroup
-  name: 'existing-ai-project'
-  params: {
-    aiFoundryProjectName: resolvedAiFoundryProjectName
-    aiServicesAccountName: aiFoundryResourceName
-    connectionCredentials: aiProjectConnectionCredentials
-    connections: aiProjectConnections
-    deployments: aiProjectDeployments
-    existingAcrConnectionName: existingAcrConnectionName
-    existingApplicationInsightsConnectionString: resolvedApplicationInsightsConnectionString
-    existingApplicationInsightsResourceId: resolvedApplicationInsightsResourceId
-    existingContainerRegistryEndpoint: platform.outputs.containerRegistryEndpoint
+var aiAccountId = regionalAiProjects[0].outputs.accountId
+var aiAccountName = regionalAiProjects[0].outputs.aiServicesAccountName
+var aiProjectId = regionalAiProjects[0].outputs.projectId
+var aiProjectName = regionalAiProjects[0].outputs.projectName
+var aiProjectEndpoint = regionalAiProjects[0].outputs.AZURE_AI_PROJECT_ENDPOINT
+var openAiEndpoint = regionalAiProjects[0].outputs.AZURE_OPENAI_ENDPOINT
+var speechToTextEndpoint = regionalAiProjects[0].outputs.speechToTextEndpoint
+var textToSpeechEndpoint = regionalAiProjects[0].outputs.textToSpeechEndpoint
+var voiceLiveEndpoint = regionalAiProjects[0].outputs.voiceLiveEndpoint
+
+module aiServicesPrivateEndpoints 'modules/private-endpoint.bicep' = [
+  for (stampLocation, index) in stampLocations: {
+    scope: regionalResourceGroups[index]
+    name: 'ai-services-private-endpoint-${stampNamingTokens[index]}'
+    params: {
+      groupIds: [
+        'account'
+      ]
+      location: stampLocation
+      name: 'pep-${take(regionalAiProjects[index].outputs.aiServicesAccountName, 54)}'
+      privateDnsZoneIds: [
+        platform.outputs.privateDnsZoneIds.aiServices
+        platform.outputs.privateDnsZoneIds.openAi
+        platform.outputs.privateDnsZoneIds.cognitiveServices
+      ]
+      privateLinkServiceId: regionalAiProjects[index].outputs.accountId
+      subnetId: regionalStamps[index].outputs.privateEndpointSubnetId
+      tags: union(baseTags, {
+        resourceGroup: regionalResourceGroups[index].name
+        region: stampLocation
+      })
+    }
   }
-}
-
-
-
-module aiServicesPrivateEndpoint 'modules/private-endpoint.bicep' = {
-  scope: platformResourceGroup
-  name: 'ai-services-private-endpoint'
-  params: {
-    groupIds: [
-      'account'
-    ]
-    location: location
-    name: 'pep-${take(aiAccountName, 54)}'
-    privateDnsZoneIds: [
-      platform.outputs.privateDnsZoneIds.aiServices
-      platform.outputs.privateDnsZoneIds.openAi
-      platform.outputs.privateDnsZoneIds.cognitiveServices
-    ]
-    privateLinkServiceId: aiAccountId
-    subnetId: platform.outputs.privateEndpointSubnetId
-    tags: union(baseTags, {
-      resourceGroup: platformResourceGroup.name
-    })
-  }
-}
+]
 
 module globalData 'modules/global-data.bicep' = {
   scope: resourceGroup(primaryRegionalResourceGroupName)
@@ -373,20 +373,31 @@ module regionalIdentities 'modules/regional-identities.bicep' = [
   }
 ]
 
+module regionalAiRbac 'modules/ai-rbac.bicep' = [
+  for (_, index) in stampLocations: {
+    scope: resourceGroup(
+      (useExistingAiProject && index == 0) ? platformResourceGroup.name : regionalResourceGroups[index].name
+    )
+    name: 'ai-rbac-${stampNamingTokens[index]}'
+    params: {
+      aiServicesAccountName: regionalAiProjects[index].outputs.aiServicesAccountName
+      workloadPrincipalId: regionalIdentities[index].outputs.workload.principalId
+    }
+  }
+]
+
 module platformRbac 'modules/platform-rbac.bicep' = [
   for (stampLocation, index) in stampLocations: {
     scope: platformResourceGroup
     name: 'platform-rbac-${stampNamingTokens[index]}'
     params: {
-      aiServicesAccountName: aiAccountName
       aksPrivateDnsZoneName: 'privatelink.${stampLocation}.azmk8s.io'
       applicationInsightsName: platform.outputs.applicationInsightsName
-      assignFoundryProjectLogReader: index == 0
+      assignFoundryProjectLogReader: true
       containerRegistryName: platform.outputs.containerRegistryName
       controlPlanePrincipalId: regionalIdentities[index].outputs.controlPlane.principalId
-      foundryProjectPrincipalId: aiProjectPrincipalId
+      foundryProjectPrincipalId: regionalAiProjects[index].outputs.projectPrincipalId
       kubeletPrincipalId: regionalIdentities[index].outputs.kubelet.principalId
-      workloadPrincipalId: regionalIdentities[index].outputs.workload.principalId
     }
   }
 ]
@@ -512,6 +523,32 @@ output AZURE_AI_PROJECT_NAME string = aiProjectName
 output AZURE_AI_PROJECT_ENDPOINT string = aiProjectEndpoint
 output FOUNDRY_PROJECT_ENDPOINT string = aiProjectEndpoint
 output AZURE_OPENAI_ENDPOINT string = openAiEndpoint
+output AZURE_SPEECH_ENDPOINT string = speechToTextEndpoint
+output AZURE_SPEECH_TO_TEXT_ENDPOINT string = speechToTextEndpoint
+output AZURE_TEXT_TO_SPEECH_ENDPOINT string = textToSpeechEndpoint
+output AZURE_VOICELIVE_ENDPOINT string = voiceLiveEndpoint
+output AZURE_VOICE_LIVE_ENDPOINT string = voiceLiveEndpoint
+output AZURE_AI_ACCOUNT_RESOURCE_GROUP string = (useExistingAiProject)
+  ? platformResourceGroup.name
+  : regionalResourceGroups[0].name
+output AZURE_AI_PROJECTS_JSON array = [
+  for (stampLocation, index) in stampLocations: {
+    accountId: regionalAiProjects[index].outputs.accountId
+    accountName: regionalAiProjects[index].outputs.aiServicesAccountName
+    location: stampLocation
+    openAiEndpoint: regionalAiProjects[index].outputs.AZURE_OPENAI_ENDPOINT
+    privateEndpointId: aiServicesPrivateEndpoints[index].outputs.id
+    projectEndpoint: regionalAiProjects[index].outputs.AZURE_AI_PROJECT_ENDPOINT
+    projectId: regionalAiProjects[index].outputs.projectId
+    projectName: regionalAiProjects[index].outputs.projectName
+    resourceGroup: (useExistingAiProject && index == 0)
+      ? platformResourceGroup.name
+      : regionalResourceGroups[index].name
+    speechToTextEndpoint: regionalAiProjects[index].outputs.speechToTextEndpoint
+    textToSpeechEndpoint: regionalAiProjects[index].outputs.textToSpeechEndpoint
+    voiceLiveEndpoint: regionalAiProjects[index].outputs.voiceLiveEndpoint
+  }
+]
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = platform.outputs.applicationInsightsConnectionString
 output APPLICATIONINSIGHTS_RESOURCE_ID string = platform.outputs.applicationInsightsId
 output AZURE_MONITOR_WORKSPACE_ID string = platform.outputs.azureMonitorWorkspaceId
@@ -519,9 +556,7 @@ output AZURE_MONITOR_WORKSPACE_NAME string = platform.outputs.azureMonitorWorksp
 output AZURE_MANAGED_GRAFANA_ID string = platform.outputs.managedGrafanaId
 output AZURE_MANAGED_GRAFANA_NAME string = platform.outputs.managedGrafanaName
 output AZURE_MANAGED_GRAFANA_ENDPOINT string = platform.outputs.managedGrafanaEndpoint
-output AZURE_AI_PROJECT_ACR_CONNECTION_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.registry.connectionName
-  : aiProject.outputs.dependentResources.registry.connectionName
+output AZURE_AI_PROJECT_ACR_CONNECTION_NAME string = regionalAiProjects[0].outputs.dependentResources.registry.connectionName
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = platform.outputs.containerRegistryEndpoint
 output AZURE_CONTAINER_REGISTRY_RESOURCE_ID string = platform.outputs.containerRegistryId
 output AZURE_COSMOS_DB_ACCOUNT_NAME string = platform.outputs.cosmosAccountName
@@ -546,36 +581,14 @@ output AZURE_REDIS_CLUSTERS_JSON array = [
 output AZURE_COMMUNICATION_SERVICES_NAME string = platform.outputs.communicationServicesName
 output AZURE_COMMUNICATION_SERVICES_IMMUTABLE_RESOURCE_ID string = platform.outputs.communicationServicesImmutableResourceId
 
-output AZURE_AI_SEARCH_CONNECTION_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.search.connectionName
-  : aiProject.outputs.dependentResources.search.connectionName
-output AZURE_AI_SEARCH_SERVICE_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.search.serviceName
-  : aiProject.outputs.dependentResources.search.serviceName
-output AZURE_STORAGE_CONNECTION_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.storage.connectionName
-  : aiProject.outputs.dependentResources.storage.connectionName
-output AZURE_STORAGE_ACCOUNT_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.storage.accountName
-  : aiProject.outputs.dependentResources.storage.accountName
-output BING_GROUNDING_CONNECTION_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.bing_grounding.connectionName
-  : aiProject.outputs.dependentResources.bing_grounding.connectionName
-output BING_GROUNDING_RESOURCE_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.bing_grounding.name
-  : aiProject.outputs.dependentResources.bing_grounding.name
-output BING_GROUNDING_CONNECTION_ID string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.bing_grounding.connectionId
-  : aiProject.outputs.dependentResources.bing_grounding.connectionId
-output BING_CUSTOM_GROUNDING_CONNECTION_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.bing_custom_grounding.connectionName
-  : aiProject.outputs.dependentResources.bing_custom_grounding.connectionName
-output BING_CUSTOM_GROUNDING_NAME string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.bing_custom_grounding.name
-  : aiProject.outputs.dependentResources.bing_custom_grounding.name
-output BING_CUSTOM_GROUNDING_CONNECTION_ID string = useExistingAiProject
-  ? existingAiProject.outputs.dependentResources.bing_custom_grounding.connectionId
-  : aiProject.outputs.dependentResources.bing_custom_grounding.connectionId
-output AI_PROJECT_CONNECTION_IDS_JSON string = useExistingAiProject
-  ? string(existingAiProject.outputs.connectionIds)
-  : string(aiProject.outputs.connectionIds)
+output AZURE_AI_SEARCH_CONNECTION_NAME string = regionalAiProjects[0].outputs.dependentResources.search.connectionName
+output AZURE_AI_SEARCH_SERVICE_NAME string = regionalAiProjects[0].outputs.dependentResources.search.serviceName
+output AZURE_STORAGE_CONNECTION_NAME string = regionalAiProjects[0].outputs.dependentResources.storage.connectionName
+output AZURE_STORAGE_ACCOUNT_NAME string = regionalAiProjects[0].outputs.dependentResources.storage.accountName
+output BING_GROUNDING_CONNECTION_NAME string = regionalAiProjects[0].outputs.dependentResources.bing_grounding.connectionName
+output BING_GROUNDING_RESOURCE_NAME string = regionalAiProjects[0].outputs.dependentResources.bing_grounding.name
+output BING_GROUNDING_CONNECTION_ID string = regionalAiProjects[0].outputs.dependentResources.bing_grounding.connectionId
+output BING_CUSTOM_GROUNDING_CONNECTION_NAME string = regionalAiProjects[0].outputs.dependentResources.bing_custom_grounding.connectionName
+output BING_CUSTOM_GROUNDING_NAME string = regionalAiProjects[0].outputs.dependentResources.bing_custom_grounding.name
+output BING_CUSTOM_GROUNDING_CONNECTION_ID string = regionalAiProjects[0].outputs.dependentResources.bing_custom_grounding.connectionId
+output AI_PROJECT_CONNECTION_IDS_JSON string = string(regionalAiProjects[0].outputs.connectionIds)
