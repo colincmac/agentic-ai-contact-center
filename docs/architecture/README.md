@@ -33,7 +33,9 @@ An architecture view never overrides an ADR. If a view and an ADR disagree, the 
 
 The [implementation map](../README.md#current-implementation) identifies the
 libraries now present under `code/` and the gaps between them and the imported
-strategy design. A runnable contact-center host is not yet composed. The
+strategy design. Aspire cloud/resource composition is intentionally deferred
+pending SKU, region, and capacity recommendations; application endpoint
+composition is a separate integration deliverable. The
 [local functional validation](../evidence/2026-09-08-code-adoption-validation.md)
 does not establish production behavior or capacity.
 

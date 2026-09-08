@@ -34,9 +34,15 @@ Imported design records describe the intended system and may name APIs from
 the earlier showcase. Accepted ADRs remain the design authority; implementation
 differences below are not revisions to those decisions.
 
+Aspire cloud/resource wiring is intentionally deferred while the recommended
+SKUs, regions, and capacity configuration are confirmed. The empty AppHost is
+expected at this stage, not a library defect. Application endpoint composition,
+flow conformance, and caller-authentication tests can be reviewed independently
+of those deployment choices; this code review does not populate the AppHost.
+
 | Area | Current code | Adoption boundary |
 | --- | --- | --- |
-| Hosting and ingress | [Call-control library](../code/Agents.AI.ContactCenter/Calling/) and [AppHost](../code/ContactCenter.AppHost/AppHost.cs) | AppHost registers no application services. The Event Grid answer handler, callback endpoints, and authenticated media endpoint still need host composition; see [ADR-0001](adr/0001-pstn-ingress-via-tpe.md), [ADR-0002](adr/0002-acs-call-automation-as-control-plane.md), and [ADR-0003](adr/0003-incomingcall-delivery-via-event-grid.md). |
+| Hosting and ingress | [Call-control library](../code/Agents.AI.ContactCenter/Calling/) and [AppHost](../code/ContactCenter.AppHost/AppHost.cs) | Aspire resource composition is deliberately deferred. The Event Grid answer handler, callback endpoints, and authenticated media endpoint remain a separate application-integration deliverable; see [ADR-0001](adr/0001-pstn-ingress-via-tpe.md), [ADR-0002](adr/0002-acs-call-automation-as-control-plane.md), and [ADR-0003](adr/0003-incomingcall-delivery-via-event-grid.md). |
 | Conversation strategies | [Realtime, NLU, DTMF, and composite registrations](../code/Agents.AI.ContactCenter/DependencyInjection/CallWorkflowStrategyExtensions.cs) | Chat-completion/TTS and SLM tiers are configuration entries, not built-in strategies. Current DTMF renders streamed TTS; it does not implement the independent prerecorded fallback in [ADR-0008](adr/0008-graceful-degradation-realtime-to-dtmf.md). |
 | Flow authoring | [Current YAML reader](../code/Agents.AI.ContactCenter/IvrWorkflow/Loading/CallWorkflowYamlReader.cs), [compiler](../code/Agents.AI.ContactCenter/IvrWorkflow/Compilation/WorkflowGraphCompiler.cs), and [executor](../code/Agents.AI.ContactCenter/IvrWorkflow/Execution/WorkflowExecutor.cs) | The reader requires `id` and `initialStage`. The shipped schema, older samples, and library README still describe another dialect. The catalog is keyed by ID alone; no business-user editor or VXML importer is supplied. |
 | Caller identity | [Authentication providers](../code/Agents.AI.ContactCenter/Authentication/) and [event-folded auth state](../code/Agents.AI.ContactCenter/State/Projections/AuthStateProjection.cs) | Named-method enforcement, failure handling, secret capture, and cross-call speech isolation require hardening. In particular, the current inline-auth test expects exhausted retries to enter the business stage unverified; see the [validation limitations](evidence/2026-09-08-code-adoption-validation.md#limitations). |

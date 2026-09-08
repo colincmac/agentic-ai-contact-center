@@ -71,6 +71,9 @@ flowchart LR
 - **[AppHost](../../code/ContactCenter.AppHost/AppHost.cs)** - currently empty
   apart from creating and running the distributed application. It does not
   register `CallingApi`, a contact-center service, or `AddMonitoring()`.
+  Cloud/resource composition is intentionally deferred pending SKU, region,
+  and capacity recommendations. That deferral is not a monitoring-library defect;
+  application correlation wiring and its tests are a separate concern.
 
 The rest of this folder describes the target integration. Verify it against the
 [current implementation map](../README.md#current-implementation) and

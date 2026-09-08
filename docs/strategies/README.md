@@ -45,6 +45,48 @@ requires an audible reroute for an orphaned streaming call. See
 [functional-test limitations](../evidence/2026-09-08-code-adoption-validation.md#limitations)
 before treating the design as implemented or validated.
 
+## Review direction: interaction profiles
+
+This is a design recommendation, not a new schema accepted by the current YAML
+reader or a revision of the accepted ADR tier model.
+
+Keep business flow, interaction policy, caller-authentication policy, and ingress
+configuration separate. Prefer named, configurable interaction profiles over
+assigning permanent business meaning to numeric tier values:
+
+| Profile example | Interaction | Dependency boundary |
+| --- | --- | --- |
+| Realtime voice | Native realtime speech with deterministic action authorization | Realtime provider and live media session |
+| Scripted speech / intent NLU | STT, constrained intent interpretation, and scripted TTS | Speech services plus the configured classifier, which may itself be a model |
+| Recorded DTMF | ACS callback-based digit collection and recorded prompts | ACS call control and reachable prompt assets; no live model or speech synthesis |
+| Overflow | Recorded announcement and configured transfer or clean termination | Explicit emergency route; not a claim of unlimited downstream capacity |
+
+A TTS-backed DTMF profile is also valid, but it is not independent of a Speech
+outage. An SLM can supply a classifier or conversational text backend; it does
+not require a different business-flow contract.
+
+Expected per-stage modality changes are not the same as failure-driven
+degradation. For example, a realtime conversation can use isolated deterministic
+DTMF capture for a PIN without making the model responsible for collecting the
+secret. Human handoff is an explicit flow action, not merely a lower AI tier.
+
+Enable only profiles with configured dependencies. Select among them using the
+active stage's capabilities, provider health, and available capacity. Every
+activation, including startup failure and mid-call fallback, needs admission.
+Preserve the workflow revision, validated data, completed-action identities, and
+still-valid authentication evidence. A profile change must never weaken an
+action's authorization policy. If no eligible profile can complete the stage,
+use its explicit failure/overflow route rather than silently changing the task.
+
+Workflow execution and container hosting are different choices. Orleans is a
+candidate for coordinating short per-call control events, not a reason to route
+PCM frames through durable workflow state. Microsoft documents Orleans hosting
+on both [Kubernetes](https://learn.microsoft.com/dotnet/orleans/deployment/kubernetes)
+and [Azure Container Apps](https://learn.microsoft.com/dotnet/orleans/deployment/deploy-to-azure-container-apps).
+Those hosting examples are not evidence of this workload's capacity. Keep
+hosting-specific services outside business-flow definitions, and retain the
+media-owner/reroute constraint in ADR-0011.
+
 ## Companion ADRs
 
 - [ADR-0008 — Graceful degradation: Realtime → DTMF](../adr/0008-graceful-degradation-realtime-to-dtmf.md)
