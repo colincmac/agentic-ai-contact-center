@@ -59,12 +59,12 @@ Write-Host "  Entra App → Resource Account → License + Phone Number" -Foregr
 Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Magenta
 Write-Host ""
 
-$teamsArgs = @(
-    "-ConfigFile", $ConfigFile,
-    "-OutputFile", $teamsOutputFile
-)
-if ($ExistingEntraAppClientId) { $teamsArgs += "-ExistingEntraAppClientId", $ExistingEntraAppClientId }
-if ($WhatIf) { $teamsArgs += "-WhatIf" }
+$teamsArgs = @{
+    ConfigFile = $ConfigFile
+    OutputFile = $teamsOutputFile
+}
+if ($ExistingEntraAppClientId) { $teamsArgs.ExistingEntraAppClientId = $ExistingEntraAppClientId }
+if ($WhatIf) { $teamsArgs.WhatIf = $true }
 
 $teamsScript = Join-Path $PSScriptRoot "setup_tpe_teams.ps1"
 & $teamsScript @teamsArgs
@@ -80,12 +80,12 @@ Write-Host "  Bot Service → ACS TPE Authorization → Event Grid Subscription"
 Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Magenta
 Write-Host ""
 
-$azureArgs = @(
-    "-ConfigFile", $ConfigFile,
-    "-TeamsOutputFile", $teamsOutputFile
-)
-if ($SkipBotCreation) { $azureArgs += "-SkipBotCreation" }
-if ($WhatIf) { $azureArgs += "-WhatIf" }
+$azureArgs = @{
+    ConfigFile = $ConfigFile
+    TeamsOutputFile = $teamsOutputFile
+}
+if ($SkipBotCreation) { $azureArgs.SkipBotCreation = $true }
+if ($WhatIf) { $azureArgs.WhatIf = $true }
 
 $azureScript = Join-Path $PSScriptRoot "setup_tpe_azure.ps1"
 & $azureScript @azureArgs

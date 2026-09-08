@@ -167,7 +167,7 @@ function Test-AcsRbac {
         'role','assignment','list',
         '--assignee', $signedInId,
         '--scope', $AcsResourceId,
-        '--query','[].roleDefinitionName','-o','tsv','--only-show-errors'
+        '--query','[].roleDefinitionName','-o','tsv','--only-show-errors', '--include-inherited'
     ) -AllowFailure
     if ($roles.ExitCode -ne 0) { return $true }
     $roleList = @($roles.Output | Where-Object { $_ })

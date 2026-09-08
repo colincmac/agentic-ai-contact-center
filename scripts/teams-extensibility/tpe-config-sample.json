@@ -36,7 +36,7 @@
     "clientSecretLifetimeMonths": 12,
     "grantAdminConsent": true,
 
-    "resourceAccountUpn": "ivr@contoso.com",
+    "resourceAccountUpn": "ivr@zava.com",
     "resourceAccountDisplayName": "IVR Agent",
 
     "phoneNumber": "<YOUR_PHONE_NUMBER>",
