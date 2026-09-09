@@ -33,8 +33,8 @@ solution:
   id: agentic-ai-contact-center
   name: "Agentic AI Contact Center Accelerator"
   summary: "A public Azure solution accelerator for contact-center voice agents using Azure Communication Services Call Automation, Teams Phone Extensibility, Dynamics 365 Contact Center integration patterns, and pluggable realtime AI providers."
-  # Libraries and tests are present under code/; the end-to-end application
-  # host and customer-readiness validation remain incomplete.
+  # Libraries, tests, and a single-instance banking demo are present under code/.
+  # Live customer-readiness and distributed deployment validation remain incomplete.
   maturity: prototype
 
 # Repository-relative entry points. Each path must exist and must be a local
@@ -59,7 +59,7 @@ entryPoints:
   evidence: docs/evidence/README.md
   # Reviewed synthesis metadata describing publication-safe candidate material.
   publicationBrief: docs/publishing/blog-brief.yaml
-  # Current .NET libraries and tests; not a composed runnable contact-center host.
+  # Current .NET libraries, tests, and the runnable banking demo host.
   implementation: code/ContactCenter.slnx
   # Provisioning automation for TPE resource accounts, Entra app registration,
   # and ACS binding.
@@ -97,6 +97,10 @@ extensions:
     - "provisioning and deployment automation"
     - "evidence and validation status"
   supportingPaths:
+    - id: banking_demo
+      title: "Banking demo adoption guide"
+      path: code/ContactCenter.AIAgent/README.md
+      intent: "Single-instance ACS/Voice Live/SMS host configuration, caller flow, and validation limitations."
     - id: infrastructure
       title: "Azure infrastructure entry point"
       path: infra/main.bicep

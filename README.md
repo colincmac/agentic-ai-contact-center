@@ -21,6 +21,7 @@ or capacity model fits every deployment.
 | Area | Start here |
 | --- | --- |
 | End-to-end call path | [`docs/architecture/call-flow.md`](docs/architecture/call-flow.md) |
+| Runnable banking demo | [`code/ContactCenter.AIAgent/README.md`](code/ContactCenter.AIAgent/README.md) |
 | Architecture views and reader map | [`docs/architecture/README.md`](docs/architecture/README.md) |
 | Architecture decisions | [`docs/adr/README.md`](docs/adr/README.md) |
 | TPE onboarding and automation | [`docs/runbooks/teams-configuration/tpe-onboarding-guide.md`](docs/runbooks/teams-configuration/tpe-onboarding-guide.md) |
@@ -59,8 +60,8 @@ interactions.
 | Monitoring model, KQL, and dashboard design | Reference artifacts; deployment assets are not fully migrated |
 | Bicep infrastructure | Subscription-scope platform and N-region application-stamp template available; Azure deployment evidence is not yet recorded |
 | .NET libraries and implementation tests | Present in [`code/ContactCenter.slnx`](code/ContactCenter.slnx); [445 local tests passed](docs/evidence/2026-09-09-dotnet-runtime-validation.md) for the runtime implementation patch |
-| Aspire cloud/resource composition | Intentionally deferred pending SKU, region, and capacity recommendations; [`ContactCenter.AppHost`](code/ContactCenter.AppHost/AppHost.cs) remains empty |
-| Runnable contact-center application | Host/endpoint composition is a separate adoption deliverable from Aspire resource provisioning |
+| Aspire cloud/resource composition | Environment-specific; existing [`ContactCenter.AppHost`](code/ContactCenter.AppHost/AppHost.cs) work is independent of demo endpoint composition |
+| Runnable contact-center application | [Banking demo API](code/ContactCenter.AIAgent/README.md): authenticated ACS ingress/media, Voice Live with DTMF fallback, SMS OTP, demo account actions, and operator escalation. [Local validation](docs/evidence/2026-09-09-banking-demo-validation.md) is not live Azure/TPE certification |
 | Python voice biometrics | [Optional gRPC prototype](code/voice-biometrics/); production inference and authentication assurance are not validated |
 | Measured performance and failover evidence | Not yet recorded in this repository |
 

@@ -18,6 +18,7 @@
     <Project Path="test/Agents.AI.Sandbox.Tests/Agents.AI.Sandbox.Tests.csproj" />
     <Project Path="test/AI.TestingFramework/AI.TestingFramework.csproj" />
   </Folder>
+  <Project Path="ContactCenter.AIAgent/ContactCenter.AIAgent.csproj" />
   <Project Path="ContactCenter.AppHost/ContactCenter.AppHost.csproj" />
   <Project Path="ContactCenter.ServiceDefaults/ContactCenter.ServiceDefaults.csproj" />
 

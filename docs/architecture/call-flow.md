@@ -7,8 +7,10 @@ Here's the end-to-end call flow broken into the major hops, with the key control
 > [ADR-0002](../adr/0002-acs-call-automation-as-control-plane.md), and
 > [ADR-0003](../adr/0003-incomingcall-delivery-via-event-grid.md).
 > The [current implementation](../README.md#current-implementation) contains
-> call-control primitives but no composed incoming-call/callback/media host.
-> [Local unit-test evidence](../evidence/2026-09-08-code-adoption-validation.md)
+> a [banking demo host](../../code/ContactCenter.AIAgent/README.md) composing
+> incoming-call/callback/media endpoints and blind PSTN operator escalation,
+> not a fully integrated Dynamics agent desktop.
+> [Local host-test evidence](../evidence/2026-09-09-banking-demo-validation.md)
 > is not evidence that this complete call path has been exercised.
 
 ---

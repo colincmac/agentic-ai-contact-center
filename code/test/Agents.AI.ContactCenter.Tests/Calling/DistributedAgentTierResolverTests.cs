@@ -19,6 +19,7 @@ public class DistributedAgentTierResolverTests
     public void ExplicitConfiguredOrder_ReplacesInitializedDefaults()
     {
         var host = Host.CreateApplicationBuilder();
+        host.Configuration.Sources.Clear();
         host.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["AgentTiers:FallbackOrder:0"] = "DtmfOnly",

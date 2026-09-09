@@ -377,7 +377,11 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
                 new SessionUpdateRealtimeClientMessage(updated),
                 cancellationToken).ConfigureAwait(false);
         }
-        await _agent.SendAsync(session, new CreateResponseRealtimeClientMessage(), cancellationToken).ConfigureAwait(false);
+        // The function-invocation client creates the next response after posting the tool result.
+        if (FunctionInvokingRealtimeClient.CurrentContext is null)
+        {
+            await _agent.SendAsync(session, new CreateResponseRealtimeClientMessage(), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task RunAgentLoopAsync(CancellationToken ct)

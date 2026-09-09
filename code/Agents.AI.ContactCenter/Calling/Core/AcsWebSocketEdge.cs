@@ -59,7 +59,8 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
         CancellationToken httpContextCancellation,
         CallAutomationClient callAutomationClient,
         ILogger<AcsWebSocketEdge> logger,
-        CallingTelemetry telemetry)
+        CallingTelemetry telemetry,
+        CallEdgeMetadata? callerMetadata = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(telemetry);
@@ -71,7 +72,7 @@ public sealed class AcsWebSocketEdge : ICallEdge, ICallControl
         _logger = logger;
         _telemetry = telemetry;
 
-        Metadata = new CallEdgeMetadata
+        Metadata = callerMetadata ?? new CallEdgeMetadata
         {
             DisplayName = _call.SourceDisplayName ?? _call.Source.RawId,
             RawIdentifier = _call.Source.RawId,
