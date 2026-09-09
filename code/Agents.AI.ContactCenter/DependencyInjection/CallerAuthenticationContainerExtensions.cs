@@ -2,6 +2,7 @@ using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.Authentication.Authenticators;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace Agents.AI.ContactCenter.DependencyInjection;
 
@@ -25,7 +26,9 @@ public static class CallerAuthenticationContainerExtensions
     {
         var services = builder.Services;
 
-        services.TryAddScoped<IAuthenticationOrchestrator, AuthenticationOrchestrator>();
+        services.TryAddScoped<IAuthenticationOrchestrator>(sp => new AuthenticationOrchestrator(
+            sp.GetServices<ICallerAuthenticator>().Where(a => a is not ICredentialAuthenticator),
+            sp.GetService<ILogger<AuthenticationOrchestrator>>()));
         services.TryAddScoped<ICallerElevationDispatcher, CallerElevationDispatcher>();
 
 
@@ -133,5 +136,4 @@ public static class CallerAuthenticationContainerExtensions
         }
     }
 }
-
 

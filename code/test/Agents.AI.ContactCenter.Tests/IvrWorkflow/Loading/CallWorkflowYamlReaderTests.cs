@@ -98,10 +98,14 @@ public sealed class CallWorkflowYamlReaderTests
             initialStage: balance
             stages:
               - id: balance
+                onAuthenticationFailure: denied
                 authenticate:
                   - use: IdentifyLast4
                   - anyOf: [Pin, SmsOtp]
                 terminal: true
+              - id: denied
+                terminal: true
+                terminalOutcome: failure
             """;
 
         var blueprint = CallWorkflowYamlReader.Read(yaml);

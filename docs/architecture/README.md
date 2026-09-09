@@ -31,8 +31,13 @@ An architecture view never overrides an ADR. If a view and an ADR disagree, the 
 | [`../strategies/README.md`](../strategies/README.md) | Conversation-strategy catalog: Realtime, NLU, DTMF, Composite — what each emits and how tier changes are handled. |
 | [`../strategies/conversation-strategies.md`](../strategies/conversation-strategies.md) | The detailed strategy contract and the events each strategy raises. |
 
-The demonstrator implementation that realizes these strategy contracts is not
-yet present under `code/`.
+The [implementation map](../README.md#current-implementation) identifies the
+libraries now present under `code/` and the gaps between them and the imported
+strategy design. Aspire cloud/resource composition is intentionally deferred
+pending SKU, region, and capacity recommendations; application endpoint
+composition is a separate integration deliverable. The
+[local functional validation](../evidence/2026-09-08-code-adoption-validation.md)
+does not establish production behavior or capacity.
 
 ### "Show me how it is deployed and how it scales"
 

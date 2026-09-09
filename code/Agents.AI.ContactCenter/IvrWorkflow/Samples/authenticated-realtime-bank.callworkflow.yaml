@@ -48,8 +48,8 @@ stages:
         </speak>
       menu:
         '1': { label: balance,       transition: balance }
-        '2': { label: activate-card, transition: activate_card }
-        '0': { label: agent,         transition: transfer }
+        '2': { label: activate-card, transition: activate-card }
+        '0': { label: agent,         transition: agent }
     nlu:
       instructions: Classify the caller's intent for the welcome menu.
       intents:
@@ -68,6 +68,7 @@ stages:
         when: Caller asked for an agent.
 
   - id: balance
+    onAuthenticationFailure: transfer
     goal: Read the verified caller their current account balance.
     description: Verified balance self-service.
     exitWhen: Caller has heard their balance and has no more questions.
@@ -87,6 +88,7 @@ stages:
         label: done
 
   - id: activate_card
+    onAuthenticationFailure: transfer
     goal: Activate the caller's card after identity verification.
     description: Card activation (requires PIN).
     exitWhen: Card activation acknowledged and caller has no more questions.
@@ -98,7 +100,7 @@ stages:
       instructions:
         - The caller is verified at this point.
         - Confirm the last four digits of the card the caller wants to activate.
-        - For this showcase there is no real backend; politely confirm activation.
+        - There is no activation backend in this sample. Explain that no card has been activated.
         - When the caller is done, call `advance` with target `done`.
     transitions:
       - to: closing

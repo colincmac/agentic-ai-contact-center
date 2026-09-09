@@ -16,6 +16,7 @@ namespace Agents.AI.ContactCenter.IvrWorkflow.Loading;
 /// </remarks>
 public sealed class CallWorkflowDocument
 {
+    public int SchemaVersion { get; set; } = 1;
     public string? Id { get; set; }
     public int Version { get; set; } = 1;
     public string? Description { get; set; }
@@ -49,6 +50,14 @@ public sealed class CallWorkflowStageDocument
 
     /// <summary>Inline authentication plan: ordered credential steps satisfied on stage entry.</summary>
     public List<CallWorkflowAuthStepDocument>? Authenticate { get; set; }
+    public string? OnAuthenticationFailure { get; set; }
+    public int MaxAuthenticationAttempts { get; set; } = 3;
+    public int AuthenticationMaxAgeSeconds { get; set; } = 300;
+    public List<string>? InteractionProfiles { get; set; }
+    public string? OnInputFailure { get; set; }
+    public string? Action { get; set; }
+    public string? OnActionSuccess { get; set; }
+    public string? OnActionFailure { get; set; }
 
     public CallWorkflowRealtimeDocument? Realtime { get; set; }
     public CallWorkflowNluDocument? Nlu { get; set; }
@@ -91,6 +100,7 @@ public sealed class CallWorkflowIntentDocument
 
 public sealed class CallWorkflowScriptedDocument
 {
+    public string? AudioFile { get; set; }
     public string? Ssml { get; set; }
 
     public Dictionary<string, CallWorkflowMenuOptionDocument>? Menu { get; set; }

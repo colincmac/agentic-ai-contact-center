@@ -9,5 +9,6 @@ public sealed record IncomingCallContext
     public required string CallTargetIdentifier { get; init; }   // DNIS / called number
     public string? CallerDisplayName { get; init; } = null;
     public string? CorrelationId { get; init; }
+    public string? Locale { get; init; }
     public IReadOnlyDictionary<string, object?>? CustomContext { get; init; }
 }

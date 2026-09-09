@@ -2,6 +2,15 @@
 
 Here's the end-to-end call flow broken into the major hops, with the key control-plane messages on each leg.
 
+> **Design versus implementation:** this narrative describes the target call
+> path in [ADR-0001](../adr/0001-pstn-ingress-via-tpe.md),
+> [ADR-0002](../adr/0002-acs-call-automation-as-control-plane.md), and
+> [ADR-0003](../adr/0003-incomingcall-delivery-via-event-grid.md).
+> The [current implementation](../README.md#current-implementation) contains
+> call-control primitives but no composed incoming-call/callback/media host.
+> [Local unit-test evidence](../evidence/2026-09-08-code-adoption-validation.md)
+> is not evidence that this complete call path has been exercised.
+
 ---
 
 ## 1. PSTN → Teams Phone Resource Account
@@ -233,4 +242,3 @@ Detailed wire-level diagrams, validation handshake, and timing tables — previo
 - [`transfer-patterns.md`](transfer-patterns.md) — blind vs consultative transfer patterns and VoIP-vs-SIP transport rules (former §5b detail + Appendix C).
 - [`../runbooks/event-grid-incomingcall-subscription.md`](../runbooks/event-grid-incomingcall-subscription.md) — Event Grid subscription validation handshake (former Appendix B).
 - [`../runbooks/timing-and-retries.md`](../runbooks/timing-and-retries.md) — concrete timeouts, retry schedules, suggested defaults, and the production hardening checklist (former Appendix D).
-

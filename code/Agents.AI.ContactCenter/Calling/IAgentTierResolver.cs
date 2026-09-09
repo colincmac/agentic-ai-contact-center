@@ -34,7 +34,7 @@ public interface IAgentTierResolver
     /// </summary>
     /// <param name="preferredTier">
     /// Optional caller-requested tier. When set, the resolver tries this
-    /// tier first; if it cannot be admitted, the resolver falls through to
+    /// tier first if it belongs to the configured order; if it cannot be admitted, the resolver falls through to
     /// the remainder of the configured order.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -48,7 +48,8 @@ public interface IAgentTierResolver
     /// Walks the configured order starting at the tier immediately below
     /// <paramref name="currentTier"/> and atomically admits to the first
     /// enabled tier that fits the active ceiling and still has capacity.
-    /// Used for mid-call degradation when the current transport fails.
+    /// Used for activation failure and mid-call transport failure. The caller
+    /// enforces AllowMidCallDegradation only after the first successful activation.
     /// </summary>
     /// <param name="currentTier">The tier that failed or exceeded capacity.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -60,9 +61,9 @@ public interface IAgentTierResolver
     ValueTask<AgentTier?> ResolveFallbackAsync(AgentTier currentTier, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Releases a previously admitted slot on the per-tier counter. Idempotent
-    /// — the underlying counter is clamped at zero so double-release (call end
-    /// plus reaper sweep) cannot drive it negative.
+    /// Releases a previously admitted slot on the per-tier counter. The caller
+    /// must release exactly once per successful admission; clamping at zero does
+    /// not make duplicate releases safe while other calls hold slots.
     /// </summary>
     ValueTask ReleaseAsync(AgentTier tier, CancellationToken cancellationToken = default);
 }

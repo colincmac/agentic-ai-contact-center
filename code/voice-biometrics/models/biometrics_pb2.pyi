@@ -18,7 +18,7 @@ class EnrollResponse(_message.Message):
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     success: bool
     message: str
-    def __init__(self, success: bool = ..., message: _Optional[str] = ...) -> None: ...
+    def __init__(self, success: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...
 
 class VerifyRequest(_message.Message):
     __slots__ = ("user_id", "audio_chunk")
@@ -34,4 +34,4 @@ class VerifyResponse(_message.Message):
     SIMILARITY_SCORE_FIELD_NUMBER: _ClassVar[int]
     is_match: bool
     similarity_score: float
-    def __init__(self, is_match: bool = ..., similarity_score: _Optional[float] = ...) -> None: ...
+    def __init__(self, is_match: _Optional[bool] = ..., similarity_score: _Optional[float] = ...) -> None: ...

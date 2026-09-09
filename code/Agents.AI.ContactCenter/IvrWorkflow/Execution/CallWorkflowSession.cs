@@ -1,6 +1,7 @@
 using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow.Compilation;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Execution;
 
@@ -15,6 +16,8 @@ namespace Agents.AI.ContactCenter.IvrWorkflow.Execution;
 /// </remarks>
 public sealed class CallWorkflowSession
 {
+    internal SemaphoreSlim TransitionGate { get; } = new(1, 1);
+    internal CredentialCapture CredentialCapture { get; } = new();
     public CallWorkflowSession(
         CompiledCallWorkflow workflow,
         IServiceProvider serviceProvider,
@@ -26,7 +29,7 @@ public sealed class CallWorkflowSession
 
         Workflow = workflow;
         Services = serviceProvider;
-        Authenticators = authenticators?.ToList();
+        Authenticators = (authenticators ?? serviceProvider.GetServices<ICallerAuthenticator>().OfType<ICredentialAuthenticator>()).ToList();
         CallerElevationDispatcher = callerElevationDispatcher;
     }
     public ICallerElevationDispatcher CallerElevationDispatcher { get; }

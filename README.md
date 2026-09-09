@@ -58,8 +58,16 @@ interactions.
 | TPE setup automation | Available for review and environment-specific testing |
 | Monitoring model, KQL, and dashboard design | Reference artifacts; deployment assets are not fully migrated |
 | Bicep infrastructure | Subscription-scope platform and N-region application-stamp template available; Azure deployment evidence is not yet recorded |
-| .NET demonstrator and implementation tests | Pending migration to `code/` |
+| .NET libraries and implementation tests | Present in [`code/ContactCenter.slnx`](code/ContactCenter.slnx); [445 local tests passed](docs/evidence/2026-09-09-dotnet-runtime-validation.md) for the runtime implementation patch |
+| Aspire cloud/resource composition | Intentionally deferred pending SKU, region, and capacity recommendations; [`ContactCenter.AppHost`](code/ContactCenter.AppHost/AppHost.cs) remains empty |
+| Runnable contact-center application | Host/endpoint composition is a separate adoption deliverable from Aspire resource provisioning |
+| Python voice biometrics | [Optional gRPC prototype](code/voice-biometrics/); production inference and authentication assurance are not validated |
 | Measured performance and failover evidence | Not yet recorded in this repository |
+
+See the [current implementation map](docs/README.md#current-implementation)
+before adopting the code. Present libraries and passing unit tests do not mean
+that all documented flows, fallback tiers, or authentication policies are wired
+and ready for customer use.
 
 ## Using the artifacts
 

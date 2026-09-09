@@ -113,6 +113,10 @@ public sealed class WorkflowGraphCompiler
         {
             errors.Add("Workflow id is required.");
         }
+        if (blueprint.Id?.Contains('@') == true || blueprint.Version < 1)
+        {
+            errors.Add("Workflow id cannot contain '@' and version must be positive.");
+        }
         if (blueprint.Stages.Count == 0)
         {
             errors.Add("Workflow must define at least one stage.");
@@ -133,6 +137,54 @@ public sealed class WorkflowGraphCompiler
             if (!seen.Add(stage.Id))
             {
                 errors.Add($"Duplicate stage id '{stage.Id}'.");
+            }
+            var labels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (stage.Action is not null
+                && (string.IsNullOrWhiteSpace(stage.Action)
+                    || !blueprint.Stages.Any(s => s.Id == stage.OnActionSuccess && s.Id != stage.Id)
+                    || !blueprint.Stages.Any(s => s.Id == stage.OnActionFailure && s.Id != stage.Id)))
+            {
+                errors.Add($"Stage '{stage.Id}' action requires explicit success and failure stages.");
+            }
+            if (stage.OnInputFailure is { } failureTarget && !blueprint.Stages.Any(s => s.Id == failureTarget))
+            {
+                errors.Add($"Stage '{stage.Id}' has an unknown input-failure target.");
+            }
+            foreach (var transition in stage.Transitions)
+            {
+                if (!labels.Add(transition.Label ?? transition.TargetStageId))
+                {
+                    errors.Add($"Stage '{stage.Id}' has duplicate transition labels.");
+                }
+            }
+            foreach (var option in stage.Channels.Scripted?.MenuOptions.Values ?? [])
+            {
+                if (!labels.Contains(option.TransitionLabel))
+                {
+                    errors.Add($"Stage '{stage.Id}' menu references unknown transition label '{option.TransitionLabel}'.");
+                }
+            }
+            foreach (var intent in stage.Channels.Nlu?.Intents ?? [])
+            {
+                if (!labels.Contains(intent.TransitionLabel))
+                {
+                    errors.Add($"Stage '{stage.Id}' intent references unknown transition label '{intent.TransitionLabel}'.");
+                }
+            }
+            if (stage.Authentication is { } plan)
+            {
+                var failure = blueprint.Stages.FirstOrDefault(s => s.Id == plan.FailureStageId);
+                if (failure is null || failure.Id == stage.Id || failure.Authentication is not null)
+                {
+                    errors.Add($"Stage '{stage.Id}' authentication requires an explicit, existing, unprotected failure stage.");
+                }
+                if (plan.Steps.Count == 0 || plan.MaxAttemptsPerStep < 1 || plan.EvidenceMaxAge <= TimeSpan.Zero
+                    || plan.Steps.Any(g => g.AuthenticatorNames.Count == 0
+                        || g.AuthenticatorNames.Any(string.IsNullOrWhiteSpace)
+                        || g.AuthenticatorNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() != g.AuthenticatorNames.Count))
+                {
+                    errors.Add($"Stage '{stage.Id}' has an invalid authentication plan.");
+                }
             }
         }
 

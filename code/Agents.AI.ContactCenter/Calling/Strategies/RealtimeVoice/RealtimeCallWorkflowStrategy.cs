@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Text;
 using System.Threading.Channels;
 using Agents.AI.ContactCenter.Agents.AuthorizationAgent;
 using Agents.AI.ContactCenter.Authentication;
@@ -14,6 +12,8 @@ using Extensions.AI.Contents;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Agents.AI.ContactCenter.Media.Audio;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Agents.AI.ContactCenter.Calling.Strategies.RealtimeVoice;
 
@@ -25,16 +25,18 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
 
     private readonly CallWorkflowSession _callWorkflowSession;
     private readonly WorkflowExecutor _executor;
+    private readonly CredentialCapture _capture;
     private readonly CallingTelemetry _telemetry;
     private readonly ILogger _logger;
     private string _callId = string.Empty;
+    private EdgeCapabilities? _edgeCapabilities;
     //private readonly bool _enableSessionPerTurn = false;
     private readonly Channel<OutboundDirective> _outbound = Channel.CreateBounded<OutboundDirective>(
         new BoundedChannelOptions(500)
         {
             SingleReader = true,
-            SingleWriter = true,
-            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait,
         });
 
     private readonly Channel<StrategyEvent> _events = Channel.CreateUnbounded<StrategyEvent>(
@@ -63,6 +65,7 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
 
         _agent = agent;
         _callWorkflowSession = callWorkflowSession;
+        _capture = callWorkflowSession.CredentialCapture;
         _telemetry = telemetry;
         _logger = loggerFactory?.CreateLogger<RealtimeCallWorkflowStrategy>()
             ?? NullLogger<RealtimeCallWorkflowStrategy>.Instance;
@@ -91,6 +94,7 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
         }
 
         _callId = context.CallId;
+        _edgeCapabilities = context.EdgeCapabilities;
         _projector = context.StateProjector;
         await ConnectBackendAsync(cancellationToken).ConfigureAwait(false);
 
@@ -179,7 +183,13 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
     /// </summary>
     private async ValueTask RenderStageAsync(CompiledStage stage, CancellationToken cancellationToken)
     {
+        if (!await CallWorkflowEligibility.CheckAsync(_callWorkflowSession.Services, Tier, stage, _edgeCapabilities, _emit, cancellationToken).ConfigureAwait(false)) { return; }
+        _capture.End();
         var (tools, prompt) = stage.GetStageToolsAndPrompt(_projector is null ? null : [_projector]);
+        if (AdvanceFunctionBuilder.BuildForStage(stage, _executor) is { } advance)
+        {
+            tools.Add(advance);
+        }
 
         await StartResponseAsync(tools, prompt, cancellationToken).ConfigureAwait(false);
 
@@ -191,62 +201,35 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
             new StrategyEvent.AgentSpeakingChanged(_agent.Id, _agent.Name, DateTimeOffset.UtcNow),
             cancellationToken).ConfigureAwait(false);
 
-        if (_executor.IsComplete)
-        {
-            await EndSessionAsync($"terminal stage '{stage.Id}' reached", cancellationToken).ConfigureAwait(false);
-        }
     }
 
     /// <summary>
-    /// Render an inline authentication step: push the credential instruction + a
-    /// <c>submit_credential</c> tool onto the realtime backend. The model asks the caller
-    /// conversationally and calls the tool, which drives <see cref="WorkflowExecutor.SubmitCredentialAsync"/>.
+    /// Render a trusted numeric credential prompt while model input/output is gated.
     /// </summary>
     private async ValueTask RenderAuthAsync(AuthStepRender render, CancellationToken cancellationToken)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("# Identity verification required");
-        sb.AppendLine("You must verify the caller before continuing. Do NOT fulfil the caller's request until verification succeeds.");
-        sb.AppendLine();
-
-        if (render.Challenge is { } challenge)
-        {
-            sb.AppendLine(challenge.Prompt);
-        }
-
-        foreach (var request in render.Requests)
-        {
-            var line = request.RealtimeInstruction
-                ?? $"Ask the caller for {request.Purpose}, then call submit_credential with authenticator \"{request.AuthenticatorName}\" and the value they gave.";
-            sb.AppendLine($"- {line}");
-        }
-
-        if (render.Requests.Count > 1)
-        {
-            var names = string.Join("\" or \"", render.Requests.Select(r => r.AuthenticatorName));
-            sb.AppendLine($"The caller may verify with any of: \"{names}\".");
-        }
-
-        var submitTool = AIFunctionFactory.Create(
-            SubmitCredentialToolAsync,
-            name: "submit_credential");
-
-        await StartResponseAsync([submitTool], sb.ToString(), cancellationToken).ConfigureAwait(false);
-
-        await _emit.WriteAsync(
-            new StrategyEvent.AgentSpeakingChanged(_agent.Id, _agent.Name, DateTimeOffset.UtcNow),
-            cancellationToken).ConfigureAwait(false);
+        if (!await CallWorkflowEligibility.CheckAsync(_callWorkflowSession.Services, Tier, render.Stage, _edgeCapabilities, _emit, cancellationToken).ConfigureAwait(false)) { return; }
+        var prompt = _capture.Begin(render);
+        await _agent.SendAsync(EnsureAgentSession(),
+            new SessionUpdateRealtimeClientMessage(new RealtimeSessionOptions
+            {
+                Tools = [],
+                Instructions = "Trusted caller verification is in progress. Wait; do not request or process credentials.",
+            }), cancellationToken).ConfigureAwait(false);
+        await _outbound.Writer.WriteAsync(new OutboundDirective.StopPlayback(DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+        await SpeakCredentialPromptAsync(prompt, cancellationToken).ConfigureAwait(false);
     }
 
-    [Description("Submit a credential value the caller provided (PIN digits, account last-4, or one-time code) to verify their identity.")]
-    private async Task<string> SubmitCredentialToolAsync(
-        [Description("The authenticator to satisfy, e.g. \"Pin\", \"SmsOtp\", or \"IdentifyLast4\".")] string authenticator,
-        [Description("The value the caller supplied (digits or one-time code).")] string value,
-        CancellationToken cancellationToken = default)
+    private async Task SpeakCredentialPromptAsync(string prompt, CancellationToken ct)
     {
-        await _executor.SubmitCredentialAsync(authenticator, new CredentialInput(value), cancellationToken).ConfigureAwait(false);
-        var progress = _projector?.Get<AuthSnapshot>().GetRequirement(authenticator) ?? new CredentialProgress();
-        return progress.Satisfied ? "Verified." : (progress.LastReason ?? "Not verified — please try again.");
+        var synthesizer = _callWorkflowSession.Services.GetService<ISpeechSynthesizer>()
+            ?? throw new CredentialCaptureUnavailableException("Numeric verification needs a trusted speech prompt provider.");
+        var format = prompt.TrimStart().StartsWith("<speak", StringComparison.OrdinalIgnoreCase)
+            ? SynthesizerInputFormat.SSML : SynthesizerInputFormat.Text;
+        await foreach (var pcm in synthesizer.SynthesizeAsync(prompt, format, ct).ConfigureAwait(false))
+        {
+            await _outbound.Writer.WriteAsync(new OutboundDirective.Audio(new AudioFrame(pcm, DateTimeOffset.UtcNow, null)), ct).ConfigureAwait(false);
+        }
     }
 
 
@@ -258,7 +241,7 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
 
             await foreach (var frame in context.InboundAudio.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                if (_suspended)
+                if (_suspended || _executor.IsAuthenticating || _capture.SuppressesAudio(frame.Timestamp))
                 {
                     continue;
                 }
@@ -295,6 +278,17 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
                 }
 
                 var current = _executor.CurrentStage;
+                if (_executor.IsAuthenticating)
+                {
+                    if (!_capture.IsActive) { continue; }
+                    var capture = _capture.Accept(tone.Digit);
+                    if (capture.Prompt is { } prompt) { await SpeakCredentialPromptAsync(prompt, ct).ConfigureAwait(false); }
+                    if (capture.Input is { } input)
+                    {
+                        await _executor.SubmitCredentialAsync(capture.AuthenticatorName!, input, ct).ConfigureAwait(false);
+                    }
+                    continue;
+                }
                 await _emit.WriteAsync(
                     new StrategyEvent.DtmfRecognized(tone.Digit.ToString(), current?.Id, DateTimeOffset.UtcNow),
                     ct).ConfigureAwait(false);
@@ -400,6 +394,7 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
 
                 foreach (var content in update.Contents)
                 {
+                    if (_executor.IsAuthenticating) { continue; }
                     switch (content)
                     {
                         case DataContent dc when !dc.Data.IsEmpty && !_suspended:
@@ -429,9 +424,7 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
                             await _emit.WriteAsync(
                                 new StrategyEvent.FunctionCalled(
                                     Name: fcc.Name,
-                                    Arguments: fcc.Arguments is { } args
-                                    ? new Dictionary<string, object?>(args)
-                                    : new Dictionary<string, object?>(),
+                                    Arguments: new Dictionary<string, object?>(),
                                     CallId: fcc.CallId,
                                     At: at),
                                 ct).ConfigureAwait(false);
@@ -469,11 +462,4 @@ public sealed class RealtimeCallWorkflowStrategy : IConversationStrategy
         $"{nameof(AuthorizingAIAgent)} is not connected. Call {nameof(ConnectBackendAsync)} first.");
 
 
-    private async Task EndSessionAsync(string reason, CancellationToken ct)
-    {
-        await _emit.WriteAsync(
-            new StrategyEvent.AgentUtterance(_agent.Id, $"[session ending: {reason}]", DateTimeOffset.UtcNow),
-            CancellationToken.None).ConfigureAwait(false);
-        await _cts.CancelAsync().ConfigureAwait(false);
-    }
 }

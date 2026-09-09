@@ -29,6 +29,7 @@ public class AuthorizingAIAgent : DelegatingRealtimeAIAgent
         {
             updateSession.Options = RealtimeSessionOptionsWithFunctionMiddleware(updateSession.Options) ?? updateSession.Options;
             await base.SendAsync(session, updateSession, cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         await base.SendAsync(session, message, cancellationToken).ConfigureAwait(false);

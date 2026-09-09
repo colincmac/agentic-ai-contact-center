@@ -19,6 +19,10 @@ public interface IChallengeStore
 
     /// <summary>Remove a challenge (after consumption or expiry).</summary>
     Task RemoveAsync(string challengeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Atomically verify, decrement retries, and consume successful challenges.</summary>
+    Task<bool> TryValidateAsync(string challengeId, string callId, string userId, string secret,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Stored secret + metadata for an outstanding challenge.</summary>
@@ -32,18 +36,41 @@ public sealed record ChallengeRecord(
     AuthenticationMethod Method,
     string Secret,
     DateTimeOffset ExpiresAt,
-    int AttemptsRemaining = 3);
+    int AttemptsRemaining = 3,
+    string? CallId = null);
 
 /// <summary>Process-local <see cref="IChallengeStore"/>.</summary>
 public sealed class InMemoryChallengeStore : IChallengeStore
 {
     private readonly ConcurrentDictionary<string, ChallengeRecord> _records = new(StringComparer.Ordinal);
+    private readonly Lock _gate = new();
+
+    public Task<bool> TryValidateAsync(string challengeId, string callId, string userId, string secret,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            if (!_records.TryGetValue(challengeId, out var record)) { return Task.FromResult(false); }
+            if (record.ExpiresAt <= DateTimeOffset.UtcNow || record.AttemptsRemaining <= 0)
+            {
+                _records.TryRemove(challengeId, out _);
+                return Task.FromResult(false);
+            }
+            if (record.UserId != userId || record.CallId != callId) { return Task.FromResult(false); }
+            var match = System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(record.Secret), System.Text.Encoding.UTF8.GetBytes(secret));
+            if (match || record.AttemptsRemaining == 1) { _records.TryRemove(challengeId, out _); }
+            else { _records[challengeId] = record with { AttemptsRemaining = record.AttemptsRemaining - 1 }; }
+            return Task.FromResult(match);
+        }
+    }
 
     public Task SaveAsync(string challengeId, ChallengeRecord record, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(challengeId);
         ArgumentNullException.ThrowIfNull(record);
-        _records[challengeId] = record;
+        lock (_gate) { _records[challengeId] = record; }
         return Task.CompletedTask;
     }
 
@@ -55,7 +82,7 @@ public sealed class InMemoryChallengeStore : IChallengeStore
         }
         if (record.ExpiresAt <= DateTimeOffset.UtcNow)
         {
-            _records.TryRemove(challengeId, out _);
+            lock (_gate) { _records.TryRemove(challengeId, out _); }
             return Task.FromResult<ChallengeRecord?>(null);
         }
         return Task.FromResult<ChallengeRecord?>(record);
@@ -65,7 +92,7 @@ public sealed class InMemoryChallengeStore : IChallengeStore
     {
         if (!string.IsNullOrEmpty(challengeId))
         {
-            _records.TryRemove(challengeId, out _);
+            lock (_gate) { _records.TryRemove(challengeId, out _); }
         }
         return Task.CompletedTask;
     }

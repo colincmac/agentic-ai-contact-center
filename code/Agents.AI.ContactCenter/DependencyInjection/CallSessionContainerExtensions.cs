@@ -78,6 +78,9 @@ public static class CallSessionContainerExtensions
             options.Backend = communicationOptions.CallState.Backend;
             options.EnableEventLog = communicationOptions.CallState.EnableEventLog;
             options.SnapshotEveryNEvents = communicationOptions.CallState.SnapshotEveryNEvents;
+            options.PersistenceQueueCapacity = communicationOptions.CallState.PersistenceQueueCapacity;
+            options.ObserverQueueCapacity = communicationOptions.CallState.ObserverQueueCapacity;
+            options.ShutdownTimeout = communicationOptions.CallState.ShutdownTimeout;
             options.CosmosDatabaseName = communicationOptions.CallState.CosmosDatabaseName;
             options.CosmosSnapshotContainerName = communicationOptions.CallState.CosmosSnapshotContainerName;
             options.CosmosEventContainerName = communicationOptions.CallState.CosmosEventContainerName;

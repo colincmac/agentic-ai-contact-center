@@ -1,8 +1,11 @@
 # Conversation strategies
 
-> Imported design reference. The historical implementation lived under
-> `src/AgentFramework/Agents.AI.ContactCenter/Calling/` in the source showcase;
-> it has not yet been migrated into this repository's `code/` folder.
+> Historical design reference, not a current API guide. Libraries are now
+> present under [`code/Agents.AI.ContactCenter/Calling/`](../../code/Agents.AI.ContactCenter/Calling/),
+> but several names, registrations, verb-mode strategies, and guarantees below
+> belong to the earlier showcase. Use the [current strategy map](README.md#current-implementation)
+> for implemented classes and known gaps. These snippets are not validated
+> copy-and-run examples for the current library.
 > Companion ADR: [ADR-0008 — Graceful degradation: Realtime → DTMF](../adr/0008-graceful-degradation-realtime-to-dtmf.md).
 
 A **conversation strategy** is the "brain" of an active call. The call session owns the caller edge (ACS Call Automation, media-streaming WebSocket, DTMF callbacks) and delegates *what to say next* to a single `IConversationStrategy`. Strategies do not own a socket — they read inbound frames and DTMF from channels the session hands them, and they write `OutboundDirective`s and `StrategyEvent`s back to channels the session pumps to the edge and to observers.

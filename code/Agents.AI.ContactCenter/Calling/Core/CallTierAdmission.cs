@@ -9,6 +9,7 @@ public sealed class CallTierAdmission : IAsyncDisposable
     private IAgentTierResolver? _resolver;
     private AgentTier? _tier;
     private int _released;
+    private bool _initialized;
 
     public AgentTier? Tier => _tier;
 
@@ -16,13 +17,22 @@ public sealed class CallTierAdmission : IAsyncDisposable
 
     internal void Initialize(IAgentTierResolver? resolver, AgentTier tier)
     {
-        if (_tier is not null)
+        _gate.Wait();
+        try
         {
-            throw new InvalidOperationException("The call tier admission has already been initialized.");
-        }
+            if (_initialized || _released != 0)
+            {
+                throw new InvalidOperationException("The call tier admission has already been initialized or released.");
+            }
 
-        _resolver = resolver;
-        _tier = tier;
+            _resolver = resolver;
+            _tier = tier;
+            _initialized = true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async ValueTask<AgentTier?> MoveToFallbackAsync(CancellationToken cancellationToken = default)
@@ -41,17 +51,16 @@ public sealed class CallTierAdmission : IAsyncDisposable
                 return null;
             }
 
-            try
-            {
-                await _resolver.ReleaseAsync(current, cancellationToken).ConfigureAwait(false);
-            }
-            catch
+            if (cancellationToken.IsCancellationRequested)
             {
                 await _resolver.ReleaseAsync(next.Value, CancellationToken.None).ConfigureAwait(false);
-                throw;
+                cancellationToken.ThrowIfCancellationRequested();
             }
 
+            // Transfer local ownership before releasing. If the backend fails, cleanup
+            // still owns the new slot and must not retry an ambiguous old-slot release.
             _tier = next;
+            await _resolver.ReleaseAsync(current, CancellationToken.None).ConfigureAwait(false);
             return next;
         }
         finally
@@ -62,20 +71,28 @@ public sealed class CallTierAdmission : IAsyncDisposable
 
     public async ValueTask ReleaseAsync(CancellationToken cancellationToken = default)
     {
-        if (Interlocked.Exchange(ref _released, 1) != 0)
+        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            if (_released != 0)
+            {
+                return;
+            }
 
-        if (_resolver is not null && _tier is { } tier)
+            _released = 1;
+            if (_resolver is not null && _tier is { } tier)
+            {
+                await _resolver.ReleaseAsync(tier, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        finally
         {
-            await _resolver.ReleaseAsync(tier, cancellationToken).ConfigureAwait(false);
+            _gate.Release();
         }
     }
 
     public async ValueTask DisposeAsync()
     {
         await ReleaseAsync(CancellationToken.None).ConfigureAwait(false);
-        _gate.Dispose();
     }
 }

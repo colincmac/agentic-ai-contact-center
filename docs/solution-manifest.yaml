@@ -33,8 +33,8 @@ solution:
   id: agentic-ai-contact-center
   name: "Agentic AI Contact Center Accelerator"
   summary: "A public Azure solution accelerator for contact-center voice agents using Azure Communication Services Call Automation, Teams Phone Extensibility, Dynamics 365 Contact Center integration patterns, and pluggable realtime AI providers."
-  # The architecture, automation, and operational guidance are present; the
-  # demonstrator implementation will be added under code/ in a later change.
+  # Libraries and tests are present under code/; the end-to-end application
+  # host and customer-readiness validation remain incomplete.
   maturity: prototype
 
 # Repository-relative entry points. Each path must exist and must be a local
@@ -59,8 +59,8 @@ entryPoints:
   evidence: docs/evidence/README.md
   # Reviewed synthesis metadata describing publication-safe candidate material.
   publicationBrief: docs/publishing/blog-brief.yaml
-  # The demonstrator solution has not yet been migrated into code/.
-  implementation: null
+  # Current .NET libraries and tests; not a composed runnable contact-center host.
+  implementation: code/ContactCenter.slnx
   # Provisioning automation for TPE resource accounts, Entra app registration,
   # and ACS binding.
   automation: scripts/teams-extensibility

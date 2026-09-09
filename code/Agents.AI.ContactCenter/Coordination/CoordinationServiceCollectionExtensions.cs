@@ -214,7 +214,16 @@ public static class CoordinationServiceCollectionExtensions
     /// </summary>
     public static IHostApplicationBuilder AddDistributedAgentTierResolver(this IHostApplicationBuilder builder, string sectionName = AgentTierOptions.SectionName)
     {
-        builder.Services.Configure<AgentTierOptions>(builder.Configuration.GetSection(sectionName));
+        var section = builder.Configuration.GetSection(sectionName);
+        builder.Services.AddOptions<AgentTierOptions>().Configure(options =>
+        {
+            if (section.GetSection(nameof(AgentTierOptions.FallbackOrder)).Exists())
+            {
+                options.FallbackOrder.Clear();
+            }
+            section.Bind(options);
+            options.Validate();
+        });
         builder.Services.TryAddSingleton<IAgentTierResolver, DistributedAgentTierResolver>();
         return builder;
     }

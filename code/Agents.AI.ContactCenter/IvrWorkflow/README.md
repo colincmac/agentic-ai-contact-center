@@ -1,251 +1,161 @@
-# IVR Workflow Framework
+# Call workflows
 
-A declarative, YAML-authored IVR (interactive voice response) framework that compiles
-to the existing `Agents.AI.ContactCenter` call runtime and projects into the
-[Microsoft Agent Framework Workflows](https://learn.microsoft.com/azure/ai-services/agent-framework/)
-graph model.
+The accelerator owns call-control semantics; Agent Framework supplies agent and
+workflow integration. Live audio and sockets remain outside durable workflow state.
+No Orleans runtime or new project is required.
 
-A single YAML document describes:
+## Contracts
 
-- **what the IVR can do** — *capabilities* (balance lookup, card activation, …)
-- **how the caller signals intent** — *DTMF*, *NLU*, or a *realtime* agent
-- **how the call advances** — *stages* with explicit `transitions`, `onExit`, or
-  per-intent / per-digit routing
+| Concern | Configuration / API |
+| --- | --- |
+| Trusted called-identity routing | [CallIngressOptions / CallIngressRouter](../Configuration/CallIngressOptions.cs) |
+| Versioned business flow | [WorkflowBlueprint](Blueprint/WorkflowBlueprint.cs), [YAML reader](Loading/CallWorkflowYamlReader.cs) |
+| Enabled interaction profiles and capacities | [CallInteractionOptions](../Configuration/CallInteractionOptions.cs), [profile registration](../DependencyInjection/CallInteractionServiceCollectionExtensions.cs) |
+| Required caller evidence and failure behavior | [AuthenticationPlanBlueprint](Blueprint/AuthenticationPlanBlueprint.cs), [caller authentication](../Authentication/README.md) |
 
-The same authoring surface drives all interaction strategies, so a workflow can be
-"realtime first, degrade to DTMF" without rewriting the flow.
+The [JSON schema](Schema/ivr-workflow.schema.json) and [field reference](Schema/Schema.md)
+describe the current dialect. `name`, `strategy`, `capabilities`, and nested
+`scripted.dtmf` from older samples are not accepted. Unknown and duplicate YAML
+fields fail parsing. Missing directories fail loading.
 
-### DTMF input is available to every tier
+## Execution
 
-`scripted.dtmf` is no longer the exclusive province of the dedicated DTMF strategies.
-Both the **Realtime AI** strategy and the **NLU** strategy also consume inbound DTMF
-tones during normal operation:
+The compiler checks stage IDs, transition labels/targets, menu and intent mappings,
+authentication failure routes, and action outcome routes. Runtime binding validates
+registered tools, credential authenticators, actions, and named interaction profiles
+in a temporary startup scope. Call-specific tool bindings are recreated in the call scope.
 
-- **Realtime AI** — if the active stage has a `scripted.dtmf` block, digits are handled
-  deterministically (menu transition or buffered `collect` → validator). Otherwise the
-  digit is forwarded to the LLM as an inline user turn (`[Caller pressed 1]`) so the
-  model can react conversationally. This covers cases like "caller cannot speak right
-  now" and "caller needs to enter a code mid-conversation".
-- **NLU** — digits act as a direct intent shortcut. A press resolves through the same
-  `scripted.dtmf.options` / `scripted.nlu.intents` table the speech classifier uses, so
-  noisy lines or unrecognized accents still have a deterministic escape hatch.
-  No tier swap required; the composite fallback (NLU → DTMF tier) still handles repeated
-  no-match events at the orchestration layer.
+The catalog accepts multiple revisions and resolves `workflow-id@version`. A bare ID
+works only when it identifies one revision. The selected revision is recorded in the
+IVR snapshot. Resuming with a different revision fails rather than silently changing
+an in-flight call's business process.
 
-> The full YAML reference lives at [`Schema/Schema.md`](./Schema/Schema.md). This
-> document focuses on **how the pieces fit together** and how to consume the framework
-> from a host application.
+[WorkflowExecutor](Execution/WorkflowExecutor.cs) serializes control operations using
+a gate shared by executors in the call scope. Stale transition edges and credential
+submissions outside the active authentication group are rejected. Successful named
+methods are checked by subject and age, not substituted by an unrelated method's
+numeric assurance rank.
 
----
+## Business actions
 
-## 1. End-to-end architecture
+A stage can declare `action`, `onActionSuccess`, and `onActionFailure`. Register the
+named [ICallWorkflowAction](Execution/CallActionDispatcher.cs) in the call scope.
+After required authentication succeeds, the same action runs regardless of whether
+DTMF, NLU, or realtime led the caller to that stage.
 
-```
-  YAML file (Samples/*.yaml)
-        │
-        ▼
-  ┌────────────────────────────┐
-  │ CallWorkflowYamlReader    │   reads and validates YAML, produces <name,version> key
-  └────────────────────────────┘
-        │
-        ▼
-  ┌────────────────────────────┐
-  │ WorkflowGraphCompiler      │   compiles all workflows in a catalog
-  │  + IIvrToolRegistry         │   resolves tools, guards, predicates;
-  │  + IIvrGuardFactory         │   produces a metadata-only catalog
-  │  + IIvrPredicateRegistry    │
-  └────────────────────────────┘
-        │
-  ┌─────┴──────────────────────────┐
-  │ ICallWorkflowCatalog          │   singleton workflow metadata by name+version
-  └────────────────────────────────┘
-        │
-        ▼
-  ┌────────────────────────────┐
-  │ WorkflowStartupValidationService │   validates startup Graphs
-  └────────────────────────────┘
+The dispatcher calls ASP.NET Core resource-based authorization before execution.
+It supplies validated workflow data, caller identity, and a stable idempotency key.
+Repeated requests for the same action stage share one in-process result.
+**The backend must honor that key across process failures.** This is not a
+transactional outbox or a guarantee of exactly-once external side effects.
+Return a failed result for a known rejected operation; surface an uncertain outcome
+without claiming success. Do not put two distinct transactions on repeated visits
+to the same action stage: this version executes an action stage once per call revision.
 
-```
-Every hosted workflow goes through this pipeline at least once:
+Realtime `AIFunction` bindings additionally enforce the active stage and caller
+evidence before invoking the business function. Existing tool-specific approval
+attributes remain enforced by the realtime approval middleware. Only explicit
+`WorkflowDataRecorded` events update collected data; tool arguments are not
+automatically persisted as validated slots.
 
-- **YAML -> CallWorkflowYamlReader** — read and validate the document, produce
-  a consistent `(name,version)` key.
-- **WorkflowGraphCompiler** — compile all workflows in the catalog:
-  - **Tools, Guards, Predicates** — references are resolved and validated
-    against the configured `IIvrToolRegistry`, `IIvrGuardFactory`, and
-    `IIvrPredicateRegistry`.
-  - **Metadata-only catalog** — produces a singleton `ICallWorkflowCatalog`
-    instance per unique workflow key.
-- **WorkflowStartupValidationService** — temporary scope validates the startup
-  Graph structure, transition targets, named predicates, and tool resolutions.
-  This service runs once per application lifetime.
+## Agent Framework integration
 
-Holistic validation ensures that any given `(name,version)` workflow can be located,
-is structurally sound, and has all its tools and predicates available before any calls
-are processed.
+[CallWorkflowCommandExecutor](AgentFramework/CallWorkflowCommandExecutor.cs) is a real
+`Microsoft.Agents.AI.Workflows.Executor` using the existing 1.2.0 package. It handles
+discrete entry/transition commands and returns typed outcomes. The host retains the
+call-scoped runtime; MAF checkpoints do not serialize its live service scope or media session.
+The [compatibility test](../../test/Agents.AI.ContactCenter.Tests/IvrWorkflow/Execution/AgentFrameworkAdapterTests.cs)
+executes the adapter through `InProcessExecution`.
 
-### 1.1 CompiledStage
+This is not an implementation of Agent Framework's separate declarative YAML dialect.
+The inspected upstream declarative builder exposes agent, HTTP, and MCP handlers;
+an IVR-specific declarative action/plugin path has not been proven here. No preview
+dependency was added speculatively. Keep the adapter boundary until those capabilities
+can be validated without placing call-long media loops inside workflow steps.
 
-At the core of the compilation output is a `CompiledStage`, which contains:
-- **Stage shape** — id, type, transitions, etc.
-- **Tool references** — names of tools to invoke, if any
-- **Predicate references** — names of predicates to evaluate, if any
+## Interaction and failure
 
-A `CompiledStage` never directly captures or retains any scoped service instances.
+Register realtime, NLU, synthesized DTMF, or recorded DTMF strategies explicitly.
+Profiles map customer names to registered strategies and explicit capacity budgets.
+`interactionProfiles` restricts a stage to named eligible profiles; provider health
+and capacity admission remain separate checks.
 
----
+Bind the host's `CallInteraction` section with `AddCallInteractionProfiles`.
+Profiles are ordered by degradation priority and currently map one-to-one to
+registered tier keys. Each enabled profile needs a positive `MaxConcurrent`;
+derive it from approved capacity, not the old modeled defaults. Unconfigured
+low-level tier capacities do not admit calls. Realtime/NLU/DTMF are the default
+implemented order; chat/SLM tiers require a supplied implementation.
 
-## 2. Authoring a workflow
+The standard facade installs a composite for every entry tier, so a call admitted
+directly to NLU can still degrade to DTMF. Initial backend failure and mid-call
+failure both move the admission reservation. A disabled mid-call degradation
+policy ends the failed strategy instead of silently activating another tier.
+Retired producer output is drained before a stop-playback command and activation
+of its replacement. Physical media already delivered cannot be undone.
 
-A workflow is a single YAML document. The minimal shape is:
+## State and observer bounds
 
-```yaml
-name: utility-bill-pay
-version: 1
-description: A DTMF-only bill-payment flow.
-strategy:
-  primary: dtmf
-stages:
-  - id: menu
-    scripted:
-      dtmf:
-        ssmlPrompt: "Press 1 to pay your bill, press 2 to check your balance."
-        options:
-          - { digit: '1', label: PayBill, nextStage: collect-account }
-          - { digit: '2', label: Balance, nextStage: collect-account }
-  - id: collect-account
-    scripted:
-      dtmf:
-        ssmlPrompt: "Enter your 8-digit account number, followed by pound."
-        collect:
-          minDigits: 8
-          maxDigits: 8
-          validator: verify-account-number
-          onValidNextStage: confirm
-  - id: confirm
-    scripted:
-      dtmf:
-        ssmlPrompt: "Press 1 to confirm, press 2 to start over."
-        options:
-          - { digit: '1', label: Confirm, nextStage: complete }
-          - { digit: '2', label: Restart, nextStage: menu }
-  - id: complete
-    terminal: true
-```
+[CallStateProjector](../State/CallStateProjector.cs) folds live state immediately
+and persists the same ordered stream through a separate durable-prefix projection.
+Snapshots correspond to that prefix's event watermark. `FlushAsync` is an ordered
+barrier after hydration, not an external business-transaction commit.
 
-For the full schema (strategy tiers, capabilities, guards, NLU intents, realtime prompt
-shape, etc.) see [`Schema/Schema.md`](./Schema/Schema.md). Working samples live in
-[`Samples/`](./Samples/):
+Configure `CallStateOptions.PersistenceQueueCapacity`, `SnapshotEveryNEvents`,
+and `ShutdownTimeout` for the workload. Overflow/storage failures fault persistence;
+the call session observes this even when no further event arrives.
+`ObserverQueueCapacity` bounds each observer feed. Optional observers can lose
+events with an overflow warning; `RequiresLosslessDelivery` observers instead
+cause the call to fail on overflow. These bounds are not measured capacity claims.
 
-- `utility-bill-pay.yaml` — pure DTMF, four stages, terminal completion
-- `banking-main.yaml` — mixed `realtime + nlu + dtmf` strategy with capabilities,
-  guards, identity verification, and a `wrap-up` terminal stage
+The [recorded DTMF adapter](../Calling/Strategies/Dtmf/RecordedDtmfCallWorkflowStrategy.cs)
+requires an ACS verb-capable edge, callback signals, call control, recorded HTTPS
+prompt assets, and an `onInputFailure` route for interactive stages. It waits for
+`PlayCompleted` before recognition or terminal hangup and correlates operation IDs.
+It has no live Speech/model dependency. It routes required authentication to the
+explicit authentication failure stage because no recorded credential-prompt adapter
+is supplied in this version.
 
----
+Register it with `AddRecordedDtmfCallWorkflowStrategy` instead of the streaming DTMF
+registration. An existing streaming socket cannot carry ACS file/recognition verbs:
+the host must explicitly replace the edge or route overflow. The composite must not
+claim a successful downgrade to a capability-incompatible edge.
 
-## 3. Hosting the framework
+Synthesized DTMF and NLU use the shared numeric credential collector. Realtime uses
+that collector too, with trusted synthesized prompts rather than an LLM credential
+tool. When capture is unavailable, the authored failure route is taken.
 
-Register the framework in your host's DI container with
-`builder.AddStandardContactCenter()...`:
+`terminal` means logical workflow completion, including initial and failure stages.
+The recorded adapter waits for its final playback callback before hanging up.
+Streaming hosts must coordinate their physical playback/transfer completion before
+hangup; the executor does not cancel a realtime response immediately on entering a
+terminal stage. No generic playback-completed acknowledgement is invented here.
 
-```csharp
-builder.AddStandardContactCenter()
-       .AddWorkflowsFromDirectory(...)
-       .ConfigureDefaultWorkflow(...)
-       .AddTools<TTools>()
-       .UseStandardVoiceFallback(...);
-```
+## Speech session ownership
 
-### 3.1. Request WorkflowId precedence
+[AddAzureSpeech](../DependencyInjection/AzureSpeechServiceCollectionExtensions.cs)
+registers one stateful resilient recognizer per call scope and a shared synthesis
+pipeline. The [NLU registration](../DependencyInjection/CallWorkflowStrategyExtensions.cs)
+uses a call-scoped agent, including its keyed Agent Framework alias, so one call
+cannot complete another call's recognizer. Resolve these services from a call scope,
+not the root provider.
 
-In the above call chain, `ConfigureDefaultWorkflow` establishes a fallback for any
-workflow that does not have an explicit `name` / `version` in the request.
+The Azure recognizer creates one push stream/session lazily and awaits real SDK
+startup rather than a fixed delay. Its start/stop waits use the configured Speech
+attempt timeout. The unused recognizer preallocation pool and synchronous synthesis
+network warm-up are removed. The endpoint registry owns shared service disposal.
+These are lifecycle guarantees, not measured latency or throughput improvements.
 
-However, any `CallWorkflowOptions.DefaultWorkflowId` still applies, and takes
-precedence over the default configured in the DI container.
+## Samples and validation
 
-### 3.2. Service lifetimes
+- [banking-main.yaml](Samples/banking-main.yaml): navigation across modalities, no financial operations.
+- [utility-bill-pay.yaml](Samples/utility-bill-pay.yaml): DTMF navigation; no payment is claimed.
+- [authenticated-realtime-bank.callworkflow.yaml](Samples/authenticated-realtime-bank.callworkflow.yaml):
+  authentication-plan example requiring host-provided authenticators/tools.
+- [Workflow tests](../../test/Agents.AI.ContactCenter.Tests/IvrWorkflow/) and
+  [recorded DTMF test](../../test/Agents.AI.ContactCenter.Tests/Calling/RecordedDtmfTests.cs).
 
-| Service                      | Lifetime | Purpose                                                     |
-| ---------------------------- | -------- | ----------------------------------------------------------- |
-| `WorkflowGraphCompiler`     | Singleton| Compiles all workflows in the catalog                       |
-| `ICallWorkflowCatalog`      | Singleton| Resolves workflow metadata by name+version                 |
-| `WorkflowRuntimeBinder`     | Scoped   | Binds and activates request-scoped workflow execution       |
-| `IIvrToolRegistry`          | Scoped   | Resolves tool names from YAML to `AITool` instances        |
-| `INamedEdgePredicateProvider`| Scoped   | Resolves named predicates for `requires:` guards            |
-| `CallWorkflowSession`       | Scoped   | The active workflow instance for a call                    |
-
-### 3.3. Startup guarantees
-
-Before any requests are processed, the following validations happen exactly once
-per application lifetime:
-
-- **Graph structure** — all workflows defined in YAML are acyclic, and have
-  a single, reachable start stage
-- **Transition targets** — every transition or route target is a valid stage id
-- **Named predicates** — all referenced predicates are registered
-- **Missing tools** — every tool reference is resolvable through the
-  `IIvrToolRegistry`
-- **Duplicate tool names** — no two tools have the same effective name
-
-These validations ensure that any workflow metadata resolved at runtime is backed
-by a structurally sound and complete definition.
-
-### 3.4 Runtime behavior
-
-A typical execution flows through the following key stages:
-
-- **Request begins** — `WorkflowRuntimeBinder` activates a `CallWorkflowSession`
-  scoped to the incoming request. The binder locates the requested workflow's
-  metadata and validates the initial state.
-- **Graph execution** — as the graph executes, stages may emit events that cause
-  NLU or DTMF input to be processed. This input is routed according to the
-  configured workflow, including any composite failover to other input types.
-- **State management** — the `CallStateProjector` captures and restores state
-  across tier transitions, ensuring a seamless handoff between realtime, NLU,
-  DTMF, and composite stages.
-
-This architecture allows for high flexibility in authoring workflows, while
-maintaining strict validation and routing guarantees.
-
----
-
-## 4. The Agent Framework workflow bridge
-
-Removed in favor of direct integration with the Microsoft Agent Framework via
-`WorkflowGraphCompiler`.
-
----
-
-## 5. Validation guarantees
-
-Removed; validation is now handled holistically at startup, and per-request
-validation is not permitted to retain state or scoped instances.
-
----
-
-## 6. Testing
-
-The reference tests live in
-[`test/Agents.AI.ContactCenter.Tests/IvrWorkflow/Workflows/IvrWorkflowGraphBuilderTests.cs`](../../../../test/Agents.AI.ContactCenter.Tests/IvrWorkflow/Workflows/IvrWorkflowGraphBuilderTests.cs):
-
-| Test | Validates |
-| ---- | --------- |
-| `Build_BankingMain_ProducesNodePerStageAndKnownEdges` | One executor per stage, expected edge sources, terminal `wrap-up` has no outgoing edges. |
-| `Build_UtilityBillPay_ProducesLinearChainAndTerminalStage` | DTMF transitions become edges, multi-option dedupe (`menu` → one edge to `collect-account` despite two digits), `confirm` has two distinct targets. |
-| `Build_MissingTransitionTarget_ThrowsTypedException` | Unknown transition target throws `IvrWorkflowGraphBuildException`. |
-| `BuildGraphAsync_LoaderExtension_ProducesSameGraph` | End-to-end DI: loader + graph builder produce the expected `Workflow`. |
-
-These also act as canonical examples of stubbing tools in tests via
-`AIFunctionFactory.Create(..., new AIFunctionFactoryOptions { Name = ... })`.
-
----
-
-## 7. Where to look next
-
-- **YAML reference:** [`Schema/Schema.md`](./Schema/Schema.md) and
-  [`Schema/ivr-workflow.schema.json`](./Schema/ivr-workflow.schema.json)
-- **Working samples:** [`Samples/banking-main.yaml`](./Samples/banking-main.yaml),
-  [`Samples/utility-bill-pay.yaml`](./Samples/utility-bill-pay.yaml)
-- **DI surface:** [`DependencyInjection/IvrWorkflowServiceCollectionExtensions.cs`](./DependencyInjection/IvrWorkflowServiceCollectionExtensions.cs)
-- **Compiler:** [`Compilation/IvrWorkflowCompiler.cs`](./Compilation/IvrWorkflowCompiler.cs)
+The examples are not connected banking systems. No visual editor, VXML importer,
+Python changes, new projects, or Aspire cloud/resource configuration are included.
+The [solution documentation](../../../docs/README.md) distinguishes implementation,
+local functional evidence, and unvalidated deployment/capacity behavior.

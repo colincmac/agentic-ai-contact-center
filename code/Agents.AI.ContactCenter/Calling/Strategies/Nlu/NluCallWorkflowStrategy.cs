@@ -11,6 +11,7 @@ using Agents.AI.ContactCenter.State.Projections;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Runtime.CompilerServices;
 
 namespace Agents.AI.ContactCenter.Calling.Strategies.Nlu;
 
@@ -54,7 +55,7 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
     private CallStateProjector? _projector;
     private readonly ChannelWriter<StrategyEvent> _emit;
 
-    private readonly Channel<ReadOnlyMemory<byte>> _audioFrames = Channel.CreateBounded<ReadOnlyMemory<byte>>(
+    private readonly Channel<AudioFrame> _audioFrames = Channel.CreateBounded<AudioFrame>(
         new BoundedChannelOptions(512)
         {
             SingleReader = true,
@@ -68,11 +69,10 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
     private Task? _classifyLoop;
     private bool _suspended;
     private string _callId = string.Empty;
+    private EdgeCapabilities? _edgeCapabilities;
     private int _disposed;
 
-    // Inline-auth collect mode: non-null while the executor is waiting on a credential.
-    private AuthStepRender? _activeAuth;
-    private readonly System.Text.StringBuilder _digitBuffer = new();
+    private readonly CredentialCapture _capture;
 
     public NluCallWorkflowStrategy(
         CallWorkflowSession session,
@@ -86,6 +86,7 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
         ArgumentNullException.ThrowIfNull(synthesizer);
 
         _session = session;
+        _capture = session.CredentialCapture;
         _intentAgent = intentAgent;
         _synthesizer = synthesizer;
         EscalationTarget = escalationTarget;
@@ -119,6 +120,7 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
         }
 
         _callId = context.CallId;
+        _edgeCapabilities = context.EdgeCapabilities;
         _projector = context.StateProjector;
 
         // Run the call-start authenticator chain (ANI lookup, etc.) BEFORE entering
@@ -166,9 +168,8 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
 
     private async ValueTask RenderStageAsync(CompiledStage stage, CancellationToken ct)
     {
-        // Leaving auth collect mode (plan satisfied / business stage).
-        _activeAuth = null;
-        _digitBuffer.Clear();
+        if (!await CallWorkflowEligibility.CheckAsync(_session.Services, Tier, stage, _edgeCapabilities, _emit, ct).ConfigureAwait(false)) { return; }
+        _capture.End();
 
         await _emit.WriteAsync(
             new StrategyEvent.WorkflowStepEntered(stage.Id, DateTimeOffset.UtcNow),
@@ -177,7 +178,9 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
         var ssml = stage.Blueprint.Channels.Scripted?.SsmlPrompt;
         if (!string.IsNullOrWhiteSpace(ssml))
         {
-            await SpeakAsync(ssml, SynthesizerInputFormat.SSML, ct).ConfigureAwait(false);
+            var format = ssml.TrimStart().StartsWith("<speak", StringComparison.OrdinalIgnoreCase)
+                ? SynthesizerInputFormat.SSML : SynthesizerInputFormat.Text;
+            await SpeakAsync(ssml, format, ct).ConfigureAwait(false);
             return;
         }
 
@@ -196,11 +199,9 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
     /// </summary>
     private async ValueTask RenderAuthAsync(AuthStepRender render, CancellationToken ct)
     {
-        _activeAuth = render;
-        _digitBuffer.Clear();
+        if (!await CallWorkflowEligibility.CheckAsync(_session.Services, Tier, render.Stage, _edgeCapabilities, _emit, ct).ConfigureAwait(false)) { return; }
 
-        var request = render.Requests[0];
-        var prompt = render.Challenge?.Prompt ?? request.SsmlPrompt;
+        var prompt = _capture.Begin(render);
         if (!string.IsNullOrWhiteSpace(prompt))
         {
             var format = prompt.TrimStart().StartsWith("<speak", StringComparison.OrdinalIgnoreCase)
@@ -216,8 +217,8 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
         {
             await foreach (var frame in context.InboundAudio.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                if (_suspended) { continue; }
-                await _audioFrames.Writer.WriteAsync(frame.Pcm, ct).ConfigureAwait(false);
+                if (_suspended || _executor.IsAuthenticating || _capture.SuppressesAudio(frame.Timestamp)) { continue; }
+                await _audioFrames.Writer.WriteAsync(frame, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) { }
@@ -236,15 +237,20 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
             {
                 if (_suspended) { continue; }
                 var current = _executor.CurrentStage;
+                if (_executor.IsAuthenticating)
+                {
+                    if (!_capture.IsActive) { continue; }
+                    var capture = _capture.Accept(tone.Digit);
+                    if (capture.Prompt is { } prompt) { await SpeakAsync(prompt, SynthesizerInputFormat.Text, ct).ConfigureAwait(false); }
+                    if (capture.Input is { } input)
+                    {
+                        await _executor.SubmitCredentialAsync(capture.AuthenticatorName!, input, ct).ConfigureAwait(false);
+                    }
+                    continue;
+                }
                 await _emit.WriteAsync(
                     new StrategyEvent.DtmfRecognized(tone.Digit.ToString(), current?.Id, DateTimeOffset.UtcNow),
                     ct).ConfigureAwait(false);
-
-                if (_activeAuth is { } auth)
-                {
-                    await HandleAuthDigitAsync(auth, tone, ct).ConfigureAwait(false);
-                    continue;
-                }
 
                 if (current?.Blueprint.Channels.Scripted is { MenuOptions: { Count: > 0 } menu }
                     && menu.TryGetValue(tone.Digit, out var option)
@@ -261,34 +267,11 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
         }
     }
 
-    private async Task HandleAuthDigitAsync(AuthStepRender auth, DtmfTone tone, CancellationToken ct)
+    private async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadEligibleAudioAsync([EnumeratorCancellation] CancellationToken ct)
     {
-        var request = auth.Requests[0];
-        var max = request.MaxLength ?? 32;
-        var min = request.MinLength ?? 1;
-
-        if (tone.Digit == '#')
+        await foreach (var frame in _audioFrames.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
-            if (_digitBuffer.Length >= min)
-            {
-                var value = _digitBuffer.ToString();
-                _digitBuffer.Clear();
-                await _executor.SubmitCredentialAsync(request.AuthenticatorName, new CredentialInput(value), ct).ConfigureAwait(false);
-            }
-            return;
-        }
-        if (tone.Digit == '*')
-        {
-            _digitBuffer.Clear();
-            return;
-        }
-
-        _digitBuffer.Append(tone.Digit);
-        if (_digitBuffer.Length >= max)
-        {
-            var value = _digitBuffer.ToString();
-            _digitBuffer.Clear();
-            await _executor.SubmitCredentialAsync(request.AuthenticatorName, new CredentialInput(value), ct).ConfigureAwait(false);
+            if (!_executor.IsAuthenticating && !_capture.SuppressesAudio(frame.Timestamp)) { yield return frame.Pcm; }
         }
     }
 
@@ -299,10 +282,10 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
             await _executor.EnterAsync(ct).ConfigureAwait(false);
 
             await foreach (var evt in _intentAgent
-                .ClassifyAudioStreamAsync(_audioFrames.Reader.ReadAllAsync(ct), BuildContext, ct)
+                .ClassifyAudioStreamAsync(ReadEligibleAudioAsync(ct), BuildContext, ct)
                 .ConfigureAwait(false))
             {
-                if (!evt.Transcript.IsFinal || string.IsNullOrWhiteSpace(evt.Transcript.Text))
+                if (_executor.IsAuthenticating || !evt.Transcript.IsFinal || string.IsNullOrWhiteSpace(evt.Transcript.Text))
                 {
                     continue;
                 }
@@ -361,13 +344,9 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
             new StrategyEvent.IntentClassified(result.IntentName!, result.Confidence, DateTimeOffset.UtcNow),
             ct).ConfigureAwait(false);
 
-        if (result.Entities is { Count: > 0 } entities)
+        if (result.Entities is { Count: > 0 })
         {
-            await _emit.WriteAsync(
-                new StrategyEvent.WorkflowDataRecorded(
-                    entities.ToDictionary(e => e.Key, e => (string?)e.Value?.ToString(), StringComparer.Ordinal),
-                    DateTimeOffset.UtcNow),
-                ct).ConfigureAwait(false);
+            _logger.LogDebug("Unvalidated classifier entities are not written to authoritative workflow state.");
         }
 
         if (string.Equals(result.IntentName, TransferIntentName, StringComparison.Ordinal))
@@ -442,6 +421,7 @@ public sealed class NluCallWorkflowStrategy : IConversationStrategy
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "TTS synthesis failed in NLU strategy for call {CallId}", _callId);
+            throw;
         }
     }
 }

@@ -72,6 +72,10 @@ public static class CallerAuthenticationRunner
 
         var projector = services.GetService<CallStateProjector>();
         var startIdentity = projector?.Get<AuthSnapshot>().Identity ?? CallerIdentity.Anonymous;
+        if (startIdentity.UserId != CallerIdentity.Anonymous.UserId)
+        {
+            return new AuthenticationRunResult(startIdentity, []);
+        }
         var previousLevel = startIdentity.VerificationLevel;
         var authContext = new AuthenticationContext(
             CallId: context.CallId,

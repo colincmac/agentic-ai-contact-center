@@ -66,7 +66,15 @@ public sealed class CallerElevationDispatcher : ICallerElevationDispatcher
         AuthenticationOutcome outcome;
         try
         {
-            outcome = await authenticator.AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
+            outcome = authenticator is ICredentialAuthenticator credential && previousLevel < credential.RequiredPriorLevel
+                ? new AuthenticationOutcome.NotApplicable("Required prior identification has not been established.")
+                : await authenticator.AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
+            if (outcome is AuthenticationOutcome.Authenticated result
+                && context.CurrentIdentity.UserId != CallerIdentity.Anonymous.UserId
+                && result.Identity.UserId != context.CurrentIdentity.UserId)
+            {
+                outcome = new AuthenticationOutcome.Failed("Verification cannot change the established caller.");
+            }
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)

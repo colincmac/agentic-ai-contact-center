@@ -85,7 +85,18 @@ public sealed class InlineAuthDriverTests
             InitialStageId = "secure",
             Stages =
             [
-                new StageBlueprint { Id = "secure", Authentication = plan },
+                new StageBlueprint
+                {
+                    Id = "secure",
+                    Authentication = new AuthenticationPlanBlueprint
+                    {
+                        Steps = plan.Steps,
+                        MaxAttemptsPerStep = plan.MaxAttemptsPerStep,
+                        EvidenceMaxAge = plan.EvidenceMaxAge,
+                        FailureStageId = "denied",
+                    },
+                },
+                new StageBlueprint { Id = "denied", Terminal = true, TerminalOutcome = BlueprintTerminalOutcome.Failure },
             ],
         };
         var workflow = new WorkflowGraphCompiler().Compile(blueprint);
@@ -191,7 +202,7 @@ public sealed class InlineAuthDriverTests
     }
 
     [Fact]
-    public async Task Plan_ExhaustsRetries_FallsThroughToBusiness()
+    public async Task Plan_ExhaustsRetries_RoutesToExplicitFailure()
     {
         var plan = new AuthenticationPlanBlueprint
         {
@@ -206,7 +217,50 @@ public sealed class InlineAuthDriverTests
         Assert.Empty(businessRenders);
         await executor.SubmitCredentialAsync("Fake", new CredentialInput("0000"));
 
-        Assert.Equal(["secure"], businessRenders);
+        Assert.Equal(["denied"], businessRenders);
         Assert.Equal(CallerVerificationLevel.None, projector.Get<AuthSnapshot>().Level);
+    }
+
+    [Fact]
+    public async Task EqualRank_DifferentMethod_DoesNotSatisfyNextStep()
+    {
+        var (executor, renders, business, _) = Build(
+            new AuthenticationPlanBlueprint { Steps = [new(["Identify"]), new(["Pin"])] },
+            new FakeCredentialAuthenticator("Identify", "1111", CallerVerificationLevel.KnowledgeBased),
+            new FakeCredentialAuthenticator("Pin", "2222", CallerVerificationLevel.KnowledgeBased));
+        await executor.EnterAsync();
+        await executor.SubmitCredentialAsync("Identify", new("1111"));
+        Assert.Empty(business);
+        Assert.Equal("Pin", renders[^1].Requests[0].AuthenticatorName);
+        await executor.SubmitCredentialAsync("Pin", new("2222"));
+        Assert.Equal(["secure"], business);
+    }
+
+    [Fact]
+    public async Task OutOfOrderCredential_IsRejected()
+    {
+        var (executor, _, business, _) = Build(
+            new AuthenticationPlanBlueprint { Steps = [new(["Identify"]), new(["Pin"])] },
+            new FakeCredentialAuthenticator("Identify", "1111", CallerVerificationLevel.KnowledgeBased),
+            new FakeCredentialAuthenticator("Pin", "2222", CallerVerificationLevel.MultiFactor));
+        await executor.EnterAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SubmitCredentialAsync("Pin", new("2222")));
+        Assert.Empty(business);
+    }
+
+    [Fact]
+    public async Task ExpiredEvidence_RequiresVerificationAgain()
+    {
+        var (executor, renders, business, projector) = Build(
+            new AuthenticationPlanBlueprint { Steps = [new(["Pin"])] },
+            new FakeCredentialAuthenticator("Pin", "2222", CallerVerificationLevel.KnowledgeBased));
+        projector.Fold(new StrategyEvent.CallerIdentified(CallerIdentity.Anonymous with
+        {
+            UserId = "u", VerificationLevel = CallerVerificationLevel.KnowledgeBased,
+        }, "Pin", DateTimeOffset.UtcNow.AddHours(-1)));
+        projector.Fold(new StrategyEvent.CredentialAttempted("Pin", true, null, DateTimeOffset.UtcNow.AddHours(-1), "u"));
+        await executor.EnterAsync();
+        Assert.Empty(business);
+        Assert.Single(renders);
     }
 }

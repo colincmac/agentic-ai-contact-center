@@ -2,25 +2,26 @@ using System.Collections.Concurrent;
 using Agents.AI.ContactCenter.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Agents.AI.ContactCenter.Authorization.Biometrics;
 
-namespace Agents.AI.ContactCenter.Authorization.Biometrics;
+namespace Agents.AI.ContactCenter.Testing.Biometrics;
 
 /// <summary>
 /// Evaluates voice biometric characteristics for participant authentication and verification.
 /// Monitors voice patterns to detect anomalies and verify speaker identity.
 /// </summary>
-public sealed class VoiceBiometricEvaluator : IVoiceBiometricEvaluator
+internal sealed class SimulatedVoiceBiometricEvaluator : IVoiceBiometricEvaluator
 {
-    private readonly ILogger<VoiceBiometricEvaluator> _logger;
+    private readonly ILogger<SimulatedVoiceBiometricEvaluator> _logger;
     private readonly ConcurrentDictionary<string, VoiceBiometricProfile> _profiles = new();
     private readonly VoiceBiometricOptions _options;
 
-    public VoiceBiometricEvaluator(
+    public SimulatedVoiceBiometricEvaluator(
         VoiceBiometricOptions? options = null,
-        ILogger<VoiceBiometricEvaluator>? logger = null)
+        ILogger<SimulatedVoiceBiometricEvaluator>? logger = null)
     {
         _options = options ?? new VoiceBiometricOptions();
-        _logger = logger ?? NullLogger<VoiceBiometricEvaluator>.Instance;
+        _logger = logger ?? NullLogger<SimulatedVoiceBiometricEvaluator>.Instance;
     }
 
     /// <summary>
@@ -108,14 +109,13 @@ public sealed class VoiceBiometricEvaluator : IVoiceBiometricEvaluator
         // 3. Calculate similarity/confidence score
         // 4. Apply liveness detection to prevent spoofing
 
-        // Simulate verification with random confidence for demonstration
-        var random = new Random();
-        var confidenceScore = 0.7 + (random.NextDouble() * 0.25); // 70-95%
+        // A simulator cannot establish biometric evidence.
+        var confidenceScore = 0.0;
 
         profile.VerificationAttempts++;
         profile.LastVerifiedAt = DateTimeOffset.UtcNow;
 
-        var isMatch = confidenceScore >= _options.VerificationThreshold;
+        var isMatch = false;
 
         if (isMatch)
         {
@@ -205,55 +205,3 @@ public sealed class VoiceBiometricEvaluator : IVoiceBiometricEvaluator
         await Task.CompletedTask;
     }
 }
-
-public sealed class VoiceBiometricProfile
-{
-    public string ParticipantId { get; set; } = string.Empty;
-    public bool IsEnrolled { get; set; }
-    public DateTimeOffset CreatedAt { get; set; }
-    public DateTimeOffset? LastEnrolledAt { get; set; }
-    public DateTimeOffset? LastVerifiedAt { get; set; }
-    public int EnrollmentSamples { get; set; }
-    public int VerificationAttempts { get; set; }
-    public int SuccessfulVerifications { get; set; }
-}
-
-public sealed class VoiceEnrollmentResult
-{
-    public bool Success { get; set; }
-    public bool IsComplete { get; set; }
-    public int SamplesCollected { get; set; }
-    public int SamplesRequired { get; set; }
-    public string? ErrorMessage { get; set; }
-}
-
-public sealed class VoiceVerificationResult
-{
-    public bool Success { get; set; }
-    public bool IsMatch { get; set; }
-    public double ConfidenceScore { get; set; }
-    public DateTimeOffset? VerifiedAt { get; set; }
-    public string? ErrorMessage { get; set; }
-}
-
-public sealed class VoiceAnomalyAnalysis
-{
-    public string ParticipantId { get; set; } = string.Empty;
-    public DateTimeOffset AnalyzedAt { get; set; }
-    public bool IsSyntheticVoiceDetected { get; set; }
-    public StressLevel StressLevel { get; set; }
-    public double BackgroundNoiseLevel { get; set; }
-    public double AnomalyScore { get; set; }
-    public List<string> DetectedAnomalies { get; set; } = new();
-}
-
-public enum StressLevel
-{
-    VeryLow,
-    Low,
-    Normal,
-    Elevated,
-    High,
-    VeryHigh
-}
-

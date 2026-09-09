@@ -97,9 +97,11 @@ public sealed class ContactCenterScenarioTests
                     Id = "secure",
                     Authentication = new AuthenticationPlanBlueprint
                     {
-                        Steps = [new AuthStepGroup(["TestPin"])]
+                        Steps = [new AuthStepGroup(["TestPin"])],
+                        FailureStageId = "denied",
                     }
-                }
+                },
+                new StageBlueprint { Id = "denied", Terminal = true, TerminalOutcome = BlueprintTerminalOutcome.Failure },
             ]
         };
         await using var scenario = await ContactCenterScenario
