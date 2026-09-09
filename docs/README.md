@@ -32,7 +32,7 @@ The [.NET solution](../code/ContactCenter.slnx) and
 is still a prototype, not an end-to-end runnable contact-center application.
 Imported design records describe the intended system and may name APIs from
 the earlier showcase. Accepted ADRs remain the design authority; implementation
-differences below are not revisions to those dec
+differences below are not revisions to tho
 
 Aspire cloud/resource wiring is intentionally deferred while the recommended
 SKUs, regions, and capacity configuration are confirmed. The empty AppHost is
