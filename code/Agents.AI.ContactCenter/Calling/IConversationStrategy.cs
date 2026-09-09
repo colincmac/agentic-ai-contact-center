@@ -57,6 +57,9 @@ public interface IConversationStrategy : IAsyncDisposable
 /// </summary>
 public sealed record StrategyStartContext
 {
+    public EdgeCapabilities? EdgeCapabilities { get; init; }
+    public ChannelReader<Media.Signaling.SessionSignal>? InboundSignals { get; init; }
+    public ICallControl? Control { get; init; }
     public required string CallId { get; init; }
 
     /// <summary>Caller audio fanned in from the call edge.</summary>

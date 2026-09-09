@@ -19,7 +19,8 @@ public sealed record CallStateSnapshot
 
     /// <summary>
     /// Replay watermark: the <see cref="CallEventEnvelope.Sequence"/> of the last event folded into this
-    /// snapshot. On hydrate, the projector replays the event log <c>afterSequence: EventSequence</c> to
+    /// snapshot. Slices represent exactly that ordered prefix, never newer in-process folds.
+    /// On hydrate, the projector replays the event log <c>afterSequence: EventSequence</c> to
     /// catch up the tail persisted since this snapshot. Stays <c>0</c> when the event log is disabled
     /// (the default) or no events have been folded yet.
     /// </summary>

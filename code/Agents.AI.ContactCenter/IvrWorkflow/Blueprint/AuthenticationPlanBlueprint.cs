@@ -13,6 +13,12 @@ public sealed class AuthenticationPlanBlueprint
 
     /// <summary>Maximum credential attempts allowed per step before the plan fails. Default 3.</summary>
     public int MaxAttemptsPerStep { get; init; } = 3;
+
+    /// <summary>Unprotected stage entered when verification fails or cannot be performed.</summary>
+    public string? FailureStageId { get; init; }
+
+    /// <summary>Maximum age of successful method evidence reused by this plan.</summary>
+    public TimeSpan EvidenceMaxAge { get; init; } = TimeSpan.FromMinutes(5);
 }
 
 /// <summary>

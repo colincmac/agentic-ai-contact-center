@@ -18,6 +18,8 @@ namespace Agents.AI.ContactCenter.Calling;
 public interface ICallObserver : IAsyncDisposable
 {
     string ObserverId { get; }
+    /// <summary>When true, queue overflow terminates the call instead of dropping optional analytics.</summary>
+    bool RequiresLosslessDelivery => false;
 
     Task StartAsync(CallObservation observation, CancellationToken cancellationToken = default);
 

@@ -19,6 +19,8 @@ public abstract record StrategyEvent(DateTimeOffset At)
     public sealed record FunctionCalled(string Name, IReadOnlyDictionary<string, object?> Arguments, string CallId, DateTimeOffset At) : StrategyEvent(At);
     public sealed record DtmfRecognized(string Digits, string? StepId, DateTimeOffset At) : StrategyEvent(At);
     public sealed record WorkflowStepEntered(string StepId, DateTimeOffset At) : StrategyEvent(At);
+    public sealed record WorkflowSelected(string WorkflowId, int Version, DateTimeOffset At) : StrategyEvent(At);
+    public sealed record WorkflowActionCompleted(string Action, string StageId, bool Succeeded, DateTimeOffset At) : StrategyEvent(At);
 
     /// <summary>The workflow reached a terminal stage; carries the final <see cref="IvrWorkflowStatus"/>.</summary>
     public sealed record WorkflowCompleted(IvrWorkflowStatus Status, DateTimeOffset At) : StrategyEvent(At);
@@ -46,7 +48,7 @@ public abstract record StrategyEvent(DateTimeOffset At)
     /// per-authenticator progress on <c>AuthSnapshot</c> so the workflow executor can read attempt count
     /// and satisfaction synchronously after submitting a credential.
     /// </summary>
-    public sealed record CredentialAttempted(string AuthenticatorName, bool Satisfied, string? Reason, DateTimeOffset At) : StrategyEvent(At);
+    public sealed record CredentialAttempted(string AuthenticatorName, bool Satisfied, string? Reason, DateTimeOffset At, string? SubjectId = null) : StrategyEvent(At);
 
     /// <summary>An authenticator requires caller interaction to complete (OTP, biometric phrase, …).</summary>
     public sealed record CallerAuthenticationChallenge(AuthenticationChallenge Challenge, DateTimeOffset At) : StrategyEvent(At);

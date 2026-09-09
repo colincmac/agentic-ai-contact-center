@@ -3,6 +3,8 @@ using Agents.AI.ContactCenter.Coordination;
 using Agents.AI.ContactCenter.Exceptions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using Agents.AI.ContactCenter.Calling.Strategies;
 
 namespace Agents.AI.ContactCenter.Calling.Core;
 
@@ -36,19 +38,22 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
     private readonly IDistributedCapacityTracker _capacityTracker;
     private readonly ILogger<DistributedAgentTierResolver> _logger;
     private readonly IOptionsMonitor<HyperscaleOptions>? _hyperscaleOptions;
+    private readonly IServiceProviderIsKeyedService? _strategyServices;
 
     public DistributedAgentTierResolver(
         IOptionsMonitor<AgentTierOptions> options,
         ITierCeilingProvider ceilingProvider,
         IDistributedCapacityTracker capacityTracker,
         ILogger<DistributedAgentTierResolver> logger,
-        IOptionsMonitor<HyperscaleOptions>? hyperscaleOptions = null)
+        IOptionsMonitor<HyperscaleOptions>? hyperscaleOptions = null,
+        IServiceProviderIsKeyedService? strategyServices = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _ceilingProvider = ceilingProvider ?? throw new ArgumentNullException(nameof(ceilingProvider));
         _capacityTracker = capacityTracker ?? throw new ArgumentNullException(nameof(capacityTracker));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hyperscaleOptions = hyperscaleOptions;
+        _strategyServices = strategyServices;
     }
 
     public async ValueTask<AgentTier> ResolveAsync(AgentTier? preferredTier = null, CancellationToken cancellationToken = default)
@@ -56,6 +61,7 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
         cancellationToken.ThrowIfCancellationRequested();
 
         var opts = _options.CurrentValue;
+        opts.Validate();
         var ceiling = _ceilingProvider.Current;
         var order = BuildResolveOrder(opts.FallbackOrder, preferredTier);
 
@@ -68,6 +74,7 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         throw new CapacityExhaustedException();
     }
 
@@ -76,6 +83,7 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
         cancellationToken.ThrowIfCancellationRequested();
 
         var opts = _options.CurrentValue;
+        opts.Validate();
         var ceiling = _ceilingProvider.Current;
 
         foreach (var tier in opts.FallbackOrder)
@@ -92,6 +100,7 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return null;
     }
 
@@ -109,13 +118,20 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
             return null;
         }
 
-        var cfg = ResolveConfig(opts, tier);
-        if (!cfg.Enabled)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!opts.Tiers.TryGetValue(tier, out var cfg) || !cfg.Enabled
+            || cfg.MaxConcurrent is not { } rawCap)
         {
             return null;
         }
 
-        var rawCap = cfg.MaxConcurrent is { } m ? m : long.MaxValue;
+        if (_strategyServices is not null
+            && !_strategyServices.IsKeyedService(typeof(ILeafConversationStrategyFactory), tier)
+            && !_strategyServices.IsKeyedService(typeof(IConversationStrategy), tier))
+        {
+            return null;
+        }
+
         var cap = ApplyClusterShare(rawCap);
         if (cap <= 0)
         {
@@ -125,12 +141,19 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
         var result = await _capacityTracker.TryAdmitAsync(tier, cap, cancellationToken).ConfigureAwait(false);
         if (!result.Admitted)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogDebug(
                 "Tier {Tier} refused admission at count {Count}/{Cap}; falling through.",
                 tier,
                 result.Count,
                 cap);
             return null;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            await _capacityTracker.ReleaseAsync(tier, CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         _logger.LogDebug("Admitted to tier {Tier} at count {Count}/{Cap}.", tier, result.Count, cap);
@@ -144,11 +167,11 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
     /// over-admits at the boundary; clamps an out-of-range share to
     /// <c>(0, 1]</c> for the same reason. Pass-through when no
     /// <see cref="HyperscaleOptions"/> monitor is registered, when share is
-    /// at the ceiling, or when the cap is unbounded.
+    /// at the ceiling.
     /// </summary>
     private long ApplyClusterShare(long rawCap)
     {
-        if (_hyperscaleOptions is null || rawCap == long.MaxValue)
+        if (_hyperscaleOptions is null)
         {
             return rawCap;
         }
@@ -166,12 +189,9 @@ public sealed class DistributedAgentTierResolver : IAgentTierResolver
         return (long)Math.Floor(rawCap * share);
     }
 
-    private static AgentTierConfig ResolveConfig(AgentTierOptions opts, AgentTier tier)
-        => opts.Tiers.TryGetValue(tier, out var cfg) ? cfg : new AgentTierConfig();
-
     private static IEnumerable<AgentTier> BuildResolveOrder(IReadOnlyList<AgentTier> baseOrder, AgentTier? preferred)
     {
-        if (preferred is not { } p)
+        if (preferred is not { } p || !baseOrder.Contains(p))
         {
             return baseOrder;
         }

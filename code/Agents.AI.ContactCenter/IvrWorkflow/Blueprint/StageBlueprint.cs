@@ -27,7 +27,7 @@ public sealed class StageBlueprint
     /// <summary>Longer business-side description. Optional.</summary>
     public string? Description { get; init; }
 
-    /// <summary>True when entering this stage ends the call.</summary>
+    /// <summary>Marks logical workflow completion. Physical hangup must respect the edge's playback/transfer lifecycle.</summary>
     public bool Terminal { get; init; }
 
     /// <summary>Outcome classification for terminal stages.</summary>
@@ -41,6 +41,11 @@ public sealed class StageBlueprint
     /// these credential steps on stage entry before rendering the stage's business prompt.
     /// </summary>
     public AuthenticationPlanBlueprint? Authentication { get; init; }
+    public IReadOnlyList<string> InteractionProfiles { get; init; } = [];
+    public string? OnInputFailure { get; init; }
+    public string? Action { get; init; }
+    public string? OnActionSuccess { get; init; }
+    public string? OnActionFailure { get; init; }
 
     /// <summary>Names of additional tools made available while this stage is active (on top of workflow commonTools).</summary>
     public IReadOnlyList<string> ToolNames { get; init; } = [];

@@ -115,7 +115,7 @@ public readonly record struct AudioFrame(
     DateTimeOffset Timestamp,
     string? SourceEdgeId = null);
 
-public readonly record struct DtmfTone(char Digit, DateTimeOffset Timestamp);
+public readonly record struct DtmfTone(char Digit, DateTimeOffset Timestamp, string? OperationContext = null);
 
 public enum EdgeDisconnectedReason
 {

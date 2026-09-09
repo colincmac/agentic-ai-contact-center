@@ -89,7 +89,6 @@ public sealed class SmsOtpAuthenticator : ICredentialAuthenticator
         // caller submitted a code → validate it.
         if (attempt is not null && !string.IsNullOrEmpty(attempt.Code) && !string.IsNullOrEmpty(attempt.ChallengeId))
         {
-            var record = await store.GetAsync(attempt.ChallengeId, cancellationToken).ConfigureAwait(false);
             var submittedCode = attempt.Code;
             var submittedChallengeId = attempt.ChallengeId;
 
@@ -97,20 +96,11 @@ public sealed class SmsOtpAuthenticator : ICredentialAuthenticator
             attempt.Code = null;
             attempt.ChallengeId = null;
 
-            if (record is null)
+            if (!await store.TryValidateAsync(submittedChallengeId, context.CallId, context.CurrentIdentity.UserId,
+                submittedCode, cancellationToken).ConfigureAwait(false))
             {
-                return new AuthenticationOutcome.Failed("OTP challenge expired or unknown.");
+                return new AuthenticationOutcome.Failed("OTP was invalid, expired, or its attempts were exhausted.");
             }
-            if (!string.Equals(record.UserId, context.CurrentIdentity.UserId, StringComparison.Ordinal))
-            {
-                return new AuthenticationOutcome.Failed("OTP challenge does not belong to this caller.");
-            }
-            if (!string.Equals(record.Secret, submittedCode, StringComparison.Ordinal))
-            {
-                return new AuthenticationOutcome.Failed("Incorrect OTP code.");
-            }
-
-            await store.RemoveAsync(submittedChallengeId, cancellationToken).ConfigureAwait(false);
 
             var elevated = context.CurrentIdentity with
             {
@@ -137,12 +127,17 @@ public sealed class SmsOtpAuthenticator : ICredentialAuthenticator
 
         await store.SaveAsync(
             challengeId,
-            new ChallengeRecord(context.CurrentIdentity.UserId, AuthenticationMethod.SmsOtp, code, expiresAt),
+            new ChallengeRecord(context.CurrentIdentity.UserId, AuthenticationMethod.SmsOtp, code, expiresAt, CallId: context.CallId),
             cancellationToken).ConfigureAwait(false);
 
         try
         {
             await sender.SendAsync(context.CurrentIdentity.PhoneNumber!, code, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            await store.RemoveAsync(challengeId, CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
         catch (Exception ex)
         {

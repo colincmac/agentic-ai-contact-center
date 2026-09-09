@@ -38,6 +38,7 @@ public sealed class StateFoldingChannelWriter : ChannelWriter<StrategyEvent>
 
     public override ValueTask WriteAsync(StrategyEvent item, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         _projector()?.Fold(item);
         return _inner.WriteAsync(item, cancellationToken);
     }

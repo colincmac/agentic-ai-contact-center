@@ -69,6 +69,11 @@ public sealed class AuthorizingAIFunction : DelegatingAIFunction
                     return failure.FailureResponseMessage.Text;
                 }
             }
+            else
+            {
+                _logger?.LogWarning("Function {FunctionName} denied: approval handlers are unavailable.", Name);
+                return "The action is not authorized.";
+            }
         }
 
         return await _next.Invoke(_agent, arguments, InnerFunction, base.InvokeCoreAsync, cancellationToken);

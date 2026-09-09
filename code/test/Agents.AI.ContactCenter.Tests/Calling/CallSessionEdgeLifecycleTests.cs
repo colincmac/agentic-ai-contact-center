@@ -16,6 +16,57 @@ namespace Agents.AI.ContactCenter.Tests.Calling;
 public sealed class CallSessionEdgeLifecycleTests
 {
     [Fact]
+    public async Task Attach_DrainsStartupOutputBeforeAwaitingStrategy()
+    {
+        await using var fixture = await CallSessionFixture.CreateAsync();
+        fixture.Strategy.OnStart = async ct =>
+        {
+            for (var i = 0; i < 10; i++)
+            {
+                await fixture.Strategy.EmitAsync(new OutboundDirective.Audio(new AudioFrame(new byte[] { 0, 0 }, DateTimeOffset.UtcNow)));
+            }
+        };
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        Assert.True(await fixture.Session.AttachCallerEdgeAsync(new FakeCallerEdge("startup"), timeout.Token));
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ObserverOverflow_IsBounded_AndOnlyRequiredObserversEndCall(bool lossless)
+    {
+        var observer = new NonConsumingObserver(lossless);
+        await using var fixture = await CallSessionFixture.CreateAsync(observers: [observer]);
+        Assert.True(await fixture.Session.AttachCallerEdgeAsync(new FakeCallerEdge("caller")));
+        for (var i = 0; i < 257; i++)
+        {
+            await fixture.Strategy.EmitEventAsync(new StrategyEvent.AgentUtterance("test", "event", DateTimeOffset.UtcNow));
+        }
+        await WaitUntilAsync(() => observer.Events?.Count == 256);
+        if (lossless)
+        {
+            await WaitUntilAsync(() => fixture.Session.State == CallSessionState.Ended);
+        }
+        else
+        {
+            Assert.Equal(CallSessionState.Active, fixture.Session.State);
+        }
+    }
+
+    private sealed class NonConsumingObserver(bool lossless) : ICallObserver
+    {
+        public string ObserverId => "bounded-test";
+        public bool RequiresLosslessDelivery => lossless;
+        public ChannelReader<StrategyEvent>? Events { get; private set; }
+        public Task StartAsync(CallObservation observation, CancellationToken cancellationToken = default)
+        {
+            Events = observation.Events;
+            return Task.CompletedTask;
+        }
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [Fact]
     public async Task Concurrent_StartAsync_callers_await_the_same_initialization()
     {
         var observer = new BlockingObserver();
@@ -429,7 +480,7 @@ public sealed class CallSessionEdgeLifecycleTests
 
     private sealed class TestStrategy : IConversationStrategy
     {
-        private readonly Channel<OutboundDirective> _outbound = Channel.CreateUnbounded<OutboundDirective>();
+        private readonly Channel<OutboundDirective> _outbound = Channel.CreateBounded<OutboundDirective>(8);
         private readonly Channel<StrategyEvent> _events = Channel.CreateUnbounded<StrategyEvent>();
 
         public StrategyKind Kind => StrategyKind.RealtimeVoice;
@@ -461,6 +512,7 @@ public sealed class CallSessionEdgeLifecycleTests
         public TaskCompletionSource ReleaseStop { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public StrategyStartContext? StartContext { get; private set; }
+        public Func<CancellationToken, Task>? OnStart { get; set; }
 
         public ValueTask EmitAsync(OutboundDirective directive)
             => _outbound.Writer.WriteAsync(directive);
@@ -468,11 +520,11 @@ public sealed class CallSessionEdgeLifecycleTests
         public ValueTask EmitEventAsync(StrategyEvent strategyEvent)
             => _events.Writer.WriteAsync(strategyEvent);
 
-        public Task StartAsync(StrategyStartContext context, CancellationToken cancellationToken = default)
+        public async Task StartAsync(StrategyStartContext context, CancellationToken cancellationToken = default)
         {
             StartContext = context;
             StartCount++;
-            return Task.CompletedTask;
+            if (OnStart is not null) { await OnStart(cancellationToken); }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)

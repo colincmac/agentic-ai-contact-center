@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using Microsoft.Identity.Web;
 using Microsoft.IdentityModel.JsonWebTokens;
+using System.Text.Json.Serialization;
 
 namespace Agents.AI.ContactCenter.Authentication;
 
@@ -30,6 +31,7 @@ public sealed record CallerIdentity(
     DateTimeOffset AuthenticatedAt,
     string AuthenticatedBy,
     IReadOnlyDictionary<string, object?> Claims,
+    [property: JsonConverter(typeof(CallerMethodSetConverter))]
     IReadOnlySet<string>? Methods = null): ICallerIdentity
 {
     private static readonly IReadOnlySet<string> emptyMethods =

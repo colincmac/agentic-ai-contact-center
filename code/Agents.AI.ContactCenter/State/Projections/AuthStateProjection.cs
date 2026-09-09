@@ -116,9 +116,11 @@ public sealed class AuthStateProjection : CallStateProjection<AuthSnapshot>
         var prior = current.Requirements.TryGetValue(e.AuthenticatorName, out var p) ? p : new CredentialProgress();
         var updated = prior with
         {
-            Satisfied = prior.Satisfied || e.Satisfied,
+            Satisfied = e.Satisfied && e.SubjectId == current.UserId,
             Attempts = prior.Attempts + 1,
             LastReason = e.Reason,
+            SubjectId = e.Satisfied ? e.SubjectId : null,
+            VerifiedAt = e.Satisfied ? e.At : null,
         };
         return current with { Requirements = current.Requirements.SetItem(e.AuthenticatorName, updated) };
     }
@@ -126,6 +128,13 @@ public sealed class AuthStateProjection : CallStateProjection<AuthSnapshot>
     private static AuthSnapshot Identify(AuthSnapshot current, StrategyEvent.CallerIdentified e)
     {
         var identity = e.Identity;
+        if (current.IsAuthenticated && identity.UserId != current.UserId)
+        {
+            return current with
+            {
+                Steps = current.Steps.Add(new AuthStep(e.AuthenticatorName, AuthStepOutcome.Failed, e.At)),
+            };
+        }
 
         // Only adopt the incoming identity's profile fields when it is at least as strong as what we
         // already hold; a weaker authenticator must not overwrite a stronger established identity.

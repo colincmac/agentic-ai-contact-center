@@ -44,10 +44,12 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
     private readonly Func<AuthStepRender, CancellationToken, ValueTask>? _renderAuthAsync;
     private readonly ChannelWriter<StrategyEvent> _events;
     private readonly Func<CallStateProjector?>? _projectorAccessor;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _gate;
+    private readonly IReadOnlyDictionary<string, ICredentialAuthenticator> _authenticators;
     private readonly ILogger<WorkflowExecutor> _logger;
 
     private CompiledStage? _currentStage;
+    private int _automaticTransitions;
 
     public WorkflowExecutor(
         CallWorkflowSession session,
@@ -61,6 +63,8 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         ArgumentNullException.ThrowIfNull(renderStageAsync);
 
         _session = session;
+        _gate = session.TransitionGate;
+        _authenticators = (session.Authenticators ?? []).ToDictionary(a => a.Name, StringComparer.OrdinalIgnoreCase);
         _renderStageAsync = renderStageAsync;
         _renderAuthAsync = renderAuthAsync;
         _events = events;
@@ -68,7 +72,6 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         _logger = logger ?? NullLogger<WorkflowExecutor>.Instance;
     }
 
-    /// <summary>The call's state projector, when a state plane is configured; otherwise <see langword="null"/>.</summary>
     /// <summary>The call's state projector, when a state plane is configured; otherwise <see langword="null"/>.</summary>
     private CallStateProjector? Projector => _projectorAccessor?.Invoke();
 
@@ -82,7 +85,9 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
     public CompiledCallWorkflow Workflow => _session.Workflow;
 
     public CompiledStage? CurrentStage => _currentStage;
-    public bool IsComplete => _currentStage is { Terminal: true }
+    public bool IsAuthenticating => _currentStage?.AuthenticationPlan is { } plan
+        && TryGetNextAuthStep(plan, out _, out _);
+    public bool IsComplete => (_currentStage is { Terminal: true } && !IsAuthenticating)
         || Ivr.Status is IvrWorkflowStatus.Completed or IvrWorkflowStatus.Failed or IvrWorkflowStatus.Cancelled;
 
     /// <summary>
@@ -90,10 +95,20 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
     /// </summary>
     public async ValueTask<CompiledStage> EnterAsync(CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (Ivr.WorkflowId is not null && (Ivr.WorkflowId != Workflow.Id || Ivr.WorkflowVersion != Workflow.Version))
+            {
+                throw new InvalidOperationException("The restored call is pinned to a different workflow revision.");
+            }
+            if (Ivr.WorkflowId is null)
+            {
+                await _events.WriteAsync(new StrategyEvent.WorkflowSelected(Workflow.Id, Workflow.Version, DateTimeOffset.UtcNow),
+                    cancellationToken).ConfigureAwait(false);
+            }
             EnterInitialStage();
+            _automaticTransitions = 0;
             return await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -115,11 +130,10 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
     {
         ArgumentNullException.ThrowIfNull(edge);
 
-        // Stage transitions are atomic — acquire the lock uncancelled so a partially-
-        // applied transition can't leave the navigator and transport out of sync.
-        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _automaticTransitions = 0;
             var evaluation = await EvaluateTransitionAsync(edge, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -146,12 +160,6 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
                 {
                     ApplyTransition(allowed.Edge);
                     var newStage = await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
-                    if (newStage.Terminal)
-                    {
-                        await _events.WriteAsync(
-                            new StrategyEvent.WorkflowCompleted(TerminalStatus(newStage), DateTimeOffset.UtcNow),
-                            cancellationToken).ConfigureAwait(false);
-                    }
                     return new AdvanceOutcome.Advanced(newStage);
                 }
             case TransitionEvaluation.Blocked blocked:
@@ -213,6 +221,18 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         var current = _currentStage ?? throw new InvalidOperationException(
             "Navigator has no current stage. Call EnterInitialStage() first.");
 
+        if (!current.OutgoingEdges.Contains(edge))
+        {
+            return new TransitionEvaluation.Invalid("The transition no longer belongs to the active stage.");
+        }
+        if (Ivr.CurrentStepId is { } activeId && activeId != current.Id)
+        {
+            return new TransitionEvaluation.Invalid("This executor is no longer on the active call stage.");
+        }
+        if (IsAuthenticating)
+        {
+            return new TransitionEvaluation.Blocked(edge, "Required caller verification is incomplete.");
+        }
         var context = BuildEdgeContext();
         var predicate = edge.Predicate ?? throw new InvalidOperationException(
             $"Transition '{current.Id}' → '{edge.TargetStageId}' has not been bound to the call scope.");
@@ -262,43 +282,107 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
 
     /// <summary>
     /// Render the current stage. If it carries an unsatisfied inline authentication plan, render
-    /// the next credential step instead of the business prompt; once the plan is satisfied (or a
-    /// step exhausts its retries) the business stage is rendered. Callers must hold <see cref="_gate"/>.
+    /// the next credential step instead of the business prompt. Failure routes are explicit.
+    /// Callers must hold <see cref="_gate"/>.
     /// </summary>
     private async ValueTask<CompiledStage> RenderCurrentAsync(CancellationToken cancellationToken)
     {
         var stage = _currentStage ?? throw new InvalidOperationException("No current stage.");
+        if (Ivr.CurrentStepId != stage.Id)
+        {
+            await _events.WriteAsync(new StrategyEvent.WorkflowStepEntered(stage.Id, DateTimeOffset.UtcNow),
+                cancellationToken).ConfigureAwait(false);
+        }
 
-        if (_renderAuthAsync is not null
-            && stage.AuthenticationPlan is { } plan
+        if (stage.AuthenticationPlan is { } plan
             && TryGetNextAuthStep(plan, out var stepIndex, out var group))
         {
-            if (IsGroupExhausted(plan, group))
+            if (Projector is null || _renderAuthAsync is null || IsGroupExhausted(plan, group))
             {
-                _logger.LogWarning(
-                    "Auth plan on stage '{Stage}' step {Index} exhausted retries; proceeding unverified.",
-                    stage.Id, stepIndex);
-                if (_events is not null)
-                {
-                    await _events.WriteAsync(
-                        new StrategyEvent.CallerAuthenticationFailed(
-                            string.Join("|", group.AuthenticatorNames), "Maximum attempts exceeded.", DateTimeOffset.UtcNow),
-                        cancellationToken).ConfigureAwait(false);
-                }
+                return await FailAuthenticationAsync(stage, "Verification unavailable or maximum attempts exceeded.", cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 var render = await BuildAuthStepRenderAsync(stage, stepIndex, group, cancellationToken).ConfigureAwait(false);
                 if (render is not null)
                 {
-                    await _renderAuthAsync(render, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        await _renderAuthAsync!(render, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (CredentialCaptureUnavailableException)
+                    {
+                        return await FailAuthenticationAsync(stage, "Credential capture is unavailable.", cancellationToken).ConfigureAwait(false);
+                    }
                     return stage;
                 }
+                return await FailAuthenticationAsync(stage, "No eligible verification method is available.", cancellationToken).ConfigureAwait(false);
             }
         }
 
+        if (stage.Blueprint.Action is not null)
+        {
+            if (++_automaticTransitions > 32) { throw new InvalidOperationException("Automatic action transitions exceeded the per-input limit."); }
+            var result = await _session.Services.GetRequiredService<CallActionDispatcher>()
+                .ExecuteAsync(_session, stage.Id, cancellationToken).ConfigureAwait(false);
+            await _events.WriteAsync(new StrategyEvent.WorkflowActionCompleted(stage.Blueprint.Action, stage.Id,
+                result.Succeeded, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+            _currentStage = Workflow.GetStage((result.Succeeded ? stage.Blueprint.OnActionSuccess : stage.Blueprint.OnActionFailure)
+                ?? throw new InvalidOperationException("Action outcome route is missing."));
+            return await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
+        }
         await _renderStageAsync(stage, cancellationToken).ConfigureAwait(false);
+        if (stage.Terminal)
+        {
+            await _events.WriteAsync(new StrategyEvent.WorkflowCompleted(TerminalStatus(stage), DateTimeOffset.UtcNow),
+                cancellationToken).ConfigureAwait(false);
+        }
         return stage;
+    }
+
+    public async Task FailAuthenticationAsync(string reason, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await FailAuthenticationAsync(_currentStage ?? throw new InvalidOperationException("No current stage."),
+                reason, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task HandleInputFailureAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _automaticTransitions = 0;
+            var stage = _currentStage ?? throw new InvalidOperationException("No current stage.");
+            if (IsAuthenticating)
+            {
+                await FailAuthenticationAsync(stage, "Input collection failed.", cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            _currentStage = Workflow.GetStage(stage.Blueprint.OnInputFailure
+                ?? throw new InvalidOperationException($"Stage '{stage.Id}' has no input-failure route."));
+            await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async ValueTask<CompiledStage> FailAuthenticationAsync(CompiledStage stage, string reason, CancellationToken ct)
+    {
+        var targetId = stage.AuthenticationPlan?.FailureStageId
+            ?? throw new InvalidOperationException($"Stage '{stage.Id}' has no authentication failure route.");
+        var target = Workflow.GetStage(targetId);
+        if (target.Id == stage.Id || target.AuthenticationPlan is not null)
+        {
+            throw new InvalidOperationException("Authentication failure must route to a different unprotected stage.");
+        }
+        _logger.LogWarning("Caller verification failed on stage {Stage}; routing to {Target}.", stage.Id, target.Id);
+        await _events.WriteAsync(new StrategyEvent.CallerAuthenticationFailed("workflow", reason, DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+        _currentStage = target;
+        return await RenderCurrentAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -313,15 +397,32 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
     {
         ArgumentException.ThrowIfNullOrEmpty(authenticatorName);
 
-        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var authenticators = _session.Authenticators?.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
-            if (authenticators is null || !authenticators.TryGetValue(authenticatorName, out var authenticator))
+            var stage = _currentStage ?? throw new InvalidOperationException("No current stage.");
+            if (stage.AuthenticationPlan is not { } plan
+                || (Ivr.CurrentStepId is { } activeId && activeId != stage.Id)
+                || !TryGetNextAuthStep(plan, out _, out var group)
+                || !group.AuthenticatorNames.Contains(authenticatorName, StringComparer.OrdinalIgnoreCase)
+                || !_authenticators.TryGetValue(authenticatorName, out var authenticator))
             {
-                _logger.LogWarning(
-                    "SubmitCredentialAsync: no ICredentialAuthenticator named '{Name}' is registered.",
-                    authenticatorName);
+                throw new InvalidOperationException("Credential submission does not match the active verification step.");
+            }
+            if (Auth.GetRequirement(authenticatorName).Attempts >= plan.MaxAttemptsPerStep)
+            {
+                await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            var request = authenticator.DescribeRequest(BuildAuthContext());
+            if (input.Value is null || input.Value.Length < (request.MinLength ?? 1)
+                || input.Value.Length > (request.MaxLength ?? 256)
+                || (request.Kind is CredentialKind.Digits or CredentialKind.OutOfBandCode
+                    && input.Value.Any(c => c is < '0' or > '9')))
+            {
+                await _events.WriteAsync(new StrategyEvent.CredentialAttempted(authenticatorName, false,
+                    "Invalid credential format.", DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+                await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -338,9 +439,15 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
                 _ => null,
             };
             await _events.WriteAsync(
-                new StrategyEvent.CredentialAttempted(authenticatorName, satisfied, reason, DateTimeOffset.UtcNow),
+                new StrategyEvent.CredentialAttempted(authenticatorName, satisfied, reason, DateTimeOffset.UtcNow,
+                    satisfied ? Auth.UserId : null),
                 cancellationToken).ConfigureAwait(false);
 
+            if (step?.Outcome is AuthenticationOutcome.NotApplicable)
+            {
+                await FailAuthenticationAsync(stage, "Verification method unavailable.", cancellationToken).ConfigureAwait(false);
+                return;
+            }
             await RenderCurrentAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -353,7 +460,7 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
     {
         for (var i = 0; i < plan.Steps.Count; i++)
         {
-            if (!IsGroupSatisfied(plan.Steps[i]))
+            if (!CallerEvidencePolicy.Satisfies(Auth, plan.Steps[i], plan.EvidenceMaxAge, DateTimeOffset.UtcNow))
             {
                 index = i;
                 group = plan.Steps[i];
@@ -362,28 +469,6 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         }
         index = -1;
         group = null!;
-        return false;
-    }
-
-    private bool IsGroupSatisfied(AuthStepGroup group)
-    {
-        var authenticators = _session.Authenticators?.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
-        var auth = Auth;
-        var level = auth.Level;
-        foreach (var name in group.AuthenticatorNames)
-        {
-            if (auth.GetRequirement(name).Satisfied)
-            {
-                return true;
-            }
-            if (authenticators is not null
-                && authenticators.TryGetValue(name, out var authn)
-                && authn.ElevatesTo > CallerVerificationLevel.None
-                && level >= authn.ElevatesTo)
-            {
-                return true;
-            }
-        }
         return false;
     }
 
@@ -396,29 +481,28 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         AuthStepGroup group,
         CancellationToken cancellationToken)
     {
-        var authenticators = _session.Authenticators?.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
         var context = BuildAuthContext();
         var requests = new List<CredentialRequest>(group.AuthenticatorNames.Count);
         AuthenticationChallenge? challenge = null;
 
         foreach (var name in group.AuthenticatorNames)
         {
-            if (authenticators is null || !authenticators.TryGetValue(name, out var auth))
+            if (!_authenticators.TryGetValue(name, out var auth))
             {
-                _logger.LogWarning(
-                    "Auth plan on stage '{Stage}' references unknown authenticator '{Name}'.", stage.Id, name);
-                continue;
+                throw new InvalidOperationException($"Stage '{stage.Id}' references unknown authenticator '{name}'.");
             }
+            if (Auth.Level < auth.RequiredPriorLevel
+                || Auth.GetRequirement(name).Attempts >= stage.AuthenticationPlan!.MaxAttemptsPerStep) { continue; }
 
             var request = auth.DescribeRequest(context);
 
             // Out-of-band (OTP): issue the challenge now so the caller has a code to read back.
             // Auto-issue only for a single-authenticator step; an anyOf defers issuance until chosen.
-            if (request.OutOfBand && Auth.PendingChallenge is { } pending)
+            if (request.OutOfBand && Auth.PendingChallenge is { } pending && pending.ExpiresAt > DateTimeOffset.UtcNow)
             {
                 challenge = new AuthenticationChallenge(pending.Method, pending.Prompt, pending.ChallengeId, pending.ExpiresAt);
             }
-            else if (request.OutOfBand && !group.IsAnyOf)
+            else if (request.OutOfBand)
             {
                 var run = await DispatchAsync(name, cancellationToken).ConfigureAwait(false);
                 var last = run.Steps.LastOrDefault(
@@ -427,6 +511,7 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
                 {
                     challenge = needs.Challenge;
                 }
+                else { continue; }
             }
 
             requests.Add(request);
@@ -437,13 +522,8 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
 
     private async Task<AuthenticationRunResult> DispatchAsync(string authenticatorName, CancellationToken cancellationToken)
     {
-        var dispatcher = _session.Services.GetService<ICallerElevationDispatcher>();
-        if (dispatcher is null)
-        {
-            _logger.LogWarning(
-                "No ICallerElevationDispatcher registered; cannot run authenticator '{Name}'.", authenticatorName);
-            return new AuthenticationRunResult(Auth.Identity, []);
-        }
+        var dispatcher = _session.CallerElevationDispatcher
+            ?? throw new InvalidOperationException("Caller verification requires an elevation dispatcher.");
         return await dispatcher.DispatchAsync(
             authenticatorName, CallId, events: _events, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
@@ -455,6 +535,7 @@ public sealed class WorkflowExecutor : ICallWorkflowNavigator
         Services: _session.Services);
 
     private string CallId =>
-        _session.Services.GetService<ICallSessionAccessor>()?.Current?.CallId ?? Workflow.Id;
+        Projector?.CallId ?? _session.Services.GetService<ICallSessionAccessor>()?.Current?.CallId
+        ?? throw new InvalidOperationException("Caller verification requires an active call identity.");
 
 }

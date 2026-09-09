@@ -10,6 +10,7 @@ public sealed class SessionSignal
 
     /// <summary>Optional payload; interpretation depends on <see cref="Kind"/>.</summary>
     public string? Value { get; init; }
+    public string? OperationContext { get; init; }
 
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
 }

@@ -25,6 +25,7 @@ ADR that supersedes the old one.
 | [0013](0013-sandboxed-tool-execution-via-aca-sandboxes.md) | Sandboxed tool execution via ACA Sandboxes | Proposed |
 | [0014](0014-call-state-event-folded-provider-slices.md) | Event-folded call-state provider slices | Accepted |
 | [0015](0015-aks-istio-ingress-gateway-node-pool.md) | Dedicated AKS Istio ingress gateway node pool | Accepted |
+| [0016](0016-host-neutral-call-contracts-and-verification.md) | Host-neutral call contracts and method-bound verification | Proposed |
 
 ## Authoring
 

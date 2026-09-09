@@ -42,6 +42,7 @@ public sealed record NluIntent(string Name, string Description, string Transitio
 /// <summary>DTMF + SSML config for a touch-tone-rendered stage.</summary>
 public sealed class StageScriptedConfig
 {
+    public Uri? AudioFile { get; init; }
     /// <summary>SSML the TTS engine renders.</summary>
     public string? SsmlPrompt { get; init; }
 

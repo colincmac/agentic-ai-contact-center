@@ -71,4 +71,9 @@ public readonly record struct CredentialInput(string Value);
 /// <param name="Satisfied">True once this authenticator has elevated the caller.</param>
 /// <param name="Attempts">Number of credential attempts made against this authenticator.</param>
 /// <param name="LastReason">Latest failure / status reason, when any.</param>
-public sealed record CredentialProgress(bool Satisfied = false, int Attempts = 0, string? LastReason = null);
+public sealed record CredentialProgress(
+    bool Satisfied = false,
+    int Attempts = 0,
+    string? LastReason = null,
+    string? SubjectId = null,
+    DateTimeOffset? VerifiedAt = null);

@@ -42,10 +42,9 @@ public sealed class CallWorkflowDirectoryLoaderTests : IDisposable
     }
 
     [Fact]
-    public void Load_NonexistentDirectory_ReturnsEmpty()
+    public void Load_NonexistentDirectory_Throws()
     {
-        var blueprints = CallWorkflowDirectoryLoader.Load(Path.Combine(_temp, "does-not-exist"));
-        Assert.Empty(blueprints);
+        Assert.Throws<DirectoryNotFoundException>(() => CallWorkflowDirectoryLoader.Load(Path.Combine(_temp, "does-not-exist")));
     }
 
     [Fact]

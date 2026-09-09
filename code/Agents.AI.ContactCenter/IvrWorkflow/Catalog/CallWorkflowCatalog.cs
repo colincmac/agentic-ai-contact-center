@@ -30,10 +30,10 @@ public sealed class CallWorkflowCatalog : ICallWorkflowCatalog
         _ordered = [];
         foreach (var workflow in workflows)
         {
-            if (!_byId.TryAdd(workflow.Id, workflow))
+            if (!_byId.TryAdd($"{workflow.Id}@{workflow.Version}", workflow))
             {
                 throw new ArgumentException(
-                    $"Duplicate workflow id '{workflow.Id}' registered with the catalog.",
+                    $"Duplicate workflow id/version '{workflow.Id}@{workflow.Version}' registered with the catalog.",
                     nameof(workflows));
             }
             _ordered.Add(workflow);
@@ -45,7 +45,14 @@ public sealed class CallWorkflowCatalog : ICallWorkflowCatalog
     public bool TryGet(string id, out CompiledCallWorkflow workflow)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
-        return _byId.TryGetValue(id, out workflow!);
+        if (_byId.TryGetValue(id, out workflow!)) { return true; }
+        var matches = _ordered.Where(w => string.Equals(w.Id, id, StringComparison.Ordinal)).ToArray();
+        if (matches.Length > 1)
+        {
+            throw new InvalidOperationException($"Workflow '{id}' has multiple revisions. Select an explicit 'id@version'.");
+        }
+        workflow = matches.Length == 1 ? matches[0] : null!;
+        return matches.Length == 1;
     }
 
     public CompiledCallWorkflow Get(string id) =>

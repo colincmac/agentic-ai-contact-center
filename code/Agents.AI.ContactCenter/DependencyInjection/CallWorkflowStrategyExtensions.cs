@@ -14,7 +14,7 @@ using Agents.AI.ContactCenter.Media.Audio;
 using Agents.AI.ContactCenter.Telemetry;
 using Agents.AI.Extensions.ToolApproval;
 using Agents.AI.Realtime;
-using Microsoft.Agents.AI.Hosting;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -104,7 +104,7 @@ public static class CallWorkflowStrategyExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        builder.HostApplicationBuilder.AddAIAgent(options.Name, (sp, key) =>
+        builder.Services.AddKeyedScoped<IvrIntentAgent>(options.Name, (sp, key) =>
         {
             var chatClient = chatClientServiceKey is null
                 ? sp.GetRequiredService<IChatClient>()
@@ -117,7 +117,8 @@ public static class CallWorkflowStrategyExtensions
             return new IvrIntentAgent(chatClient, recognizer, resolvedOptions, loggerFactory);
         });
 
-        builder.Services.TryAddSingleton<IvrIntentAgent>(sp => sp.GetRequiredKeyedService<IvrIntentAgent>(options.Name));
+        builder.Services.AddKeyedScoped<AIAgent>(options.Name, (sp, key) => sp.GetRequiredKeyedService<IvrIntentAgent>(key));
+        builder.Services.TryAddScoped<IvrIntentAgent>(sp => sp.GetRequiredKeyedService<IvrIntentAgent>(options.Name));
 
         builder.Services.AddKeyedTransient<ILeafConversationStrategyFactory>(
             AgentTier.IntentNlu,

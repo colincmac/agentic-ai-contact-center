@@ -105,7 +105,8 @@ public sealed class StandardContactCenterBuilder
 
     /// <summary>
     /// Register the standard resilient strategy chain: realtime voice, intent NLU, then DTMF.
-    /// The facade owns registration order and composite setup.
+    /// The facade owns registration order and composite setup for every entry tier.
+    /// Set explicit positive AgentTiers capacities before admitting calls; no backend quota is assumed.
     /// </summary>
     public StandardContactCenterBuilder UseStandardVoiceFallback(
         string? realtimeAgentServiceKey = null,
@@ -130,7 +131,25 @@ public sealed class StandardContactCenterBuilder
                 AgentTier.RealtimeVoice,
                 AgentTier.RealtimeVoice,
                 AgentTier.IntentNlu,
-                AgentTier.DtmfOnly);
+                AgentTier.DtmfOnly)
+            .AddCompositeFallbackStrategy(
+                AgentTier.IntentNlu,
+                AgentTier.IntentNlu,
+                AgentTier.DtmfOnly)
+            .AddCompositeFallbackStrategy(AgentTier.DtmfOnly, AgentTier.DtmfOnly);
+
+        Advanced.Services.AddOptions<AgentTierOptions>()
+            .PostConfigure(options =>
+            {
+                options.FallbackOrder =
+                    [AgentTier.RealtimeVoice, AgentTier.IntentNlu, AgentTier.DtmfOnly];
+            })
+            .Validate(options =>
+            {
+                options.Validate();
+                return true;
+            })
+            .ValidateOnStart();
 
         _strategyPipelineConfigured = true;
         return this;

@@ -28,13 +28,14 @@ public sealed class AzureSpeechService : ISpeechRecognizer, ISpeechSynthesizer
     private readonly ILogger<AzureSpeechService> _logger;
     private readonly SpeechConfig _speechConfig;
 
-    // Synthesizer backing (lazy, shared singleton)
+    // One lazily constructed synthesizer pool shared by concurrent calls.
     private AzureSpeechSynthesizer? _synthesizer;
 
     // Recognizer backing (created lazily per instance)
     private AzureSpeechRecognizer? _recognizer;
 
     private bool _isDisposed;
+    private readonly Lock _resourceGate = new();
 
     public AzureSpeechService(
         IOptions<AzureSpeechServiceOptions> options,
@@ -109,42 +110,46 @@ public sealed class AzureSpeechService : ISpeechRecognizer, ISpeechSynthesizer
 
     /// <summary>
     /// Creates a new <see cref="ISpeechRecognizer"/> instance for continuous speech-to-text recognition.
-    /// The recognizer is pulled from a pre-warmed pool to minimize first-byte latency.
+    /// Each recognizer owns an independent push stream and recognition session.
     /// </summary>
     /// <returns>A new speech recognizer instance. The caller must dispose it after use.</returns>
     public ISpeechRecognizer CreateRecognizer()
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
-
-        _logger.LogDebug("Creating new speech recognizer");
-
-        return new AzureSpeechRecognizer(
-            _speechConfig,
-            concurrency: _options.Concurrency,
-            logger: _logger as ILogger<AzureSpeechRecognizer>);
+        lock (_resourceGate)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            return new AzureSpeechRecognizer(_speechConfig, logger: _logger as ILogger<AzureSpeechRecognizer>,
+                operationTimeout: _options.Resilience.AttemptTimeout);
+        }
     }
 
     /// <summary>
     /// Gets the shared <see cref="ISpeechSynthesizer"/> instance for text-to-speech synthesis.
-    /// The synthesizer maintains a pool of pre-warmed connections that are reused across calls.
+    /// Synthesizer instances are reused across calls without synchronous network warm-up.
     /// </summary>
     /// <returns>The shared synthesizer instance.</returns>
     public ISpeechSynthesizer GetSynthesizer()
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
-
-        if (_synthesizer is null)
+        lock (_resourceGate)
         {
-            _logger.LogDebug("Creating shared speech synthesizer");
-
-            _synthesizer = new AzureSpeechSynthesizer(
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            return _synthesizer ??= new AzureSpeechSynthesizer(
                 _speechConfig,
                 concurrency: _options.Concurrency,
                 gender: _options.SynthesisGender,
-                logger: _logger as ILogger<AzureSpeechSynthesizer>);
+                logger: _logger as ILogger<AzureSpeechSynthesizer>,
+                maximumRetainedCapacity: _options.MaximumRetainedCapacity);
         }
+    }
 
-        return _synthesizer;
+    private AzureSpeechRecognizer GetRecognizer()
+    {
+        lock (_resourceGate)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            return _recognizer ??= new AzureSpeechRecognizer(_speechConfig, logger: _logger as ILogger<AzureSpeechRecognizer>,
+                operationTimeout: _options.Resilience.AttemptTimeout);
+        }
     }
 
     #region ISpeechSynthesizer Implementation
@@ -165,27 +170,13 @@ public sealed class AzureSpeechService : ISpeechRecognizer, ISpeechSynthesizer
     /// <inheritdoc />
     async Task ISpeechRecognizer.WriteAudioAsync(ReadOnlyMemory<byte> audioData, CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
-
-        _recognizer ??= new AzureSpeechRecognizer(
-            _speechConfig,
-            concurrency: _options.Concurrency,
-            logger: _logger as ILogger<AzureSpeechRecognizer>);
-
-        await _recognizer.WriteAudioAsync(audioData, cancellationToken).ConfigureAwait(false);
+        await GetRecognizer().WriteAudioAsync(audioData, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     IAsyncEnumerable<TranscriptSegment> ISpeechRecognizer.GetTranscriptsAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
-
-        _recognizer ??= new AzureSpeechRecognizer(
-            _speechConfig,
-            concurrency: _options.Concurrency,
-            logger: _logger as ILogger<AzureSpeechRecognizer>);
-
-        return _recognizer.GetTranscriptsAsync(cancellationToken);
+        return GetRecognizer().GetTranscriptsAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -202,26 +193,24 @@ public sealed class AzureSpeechService : ISpeechRecognizer, ISpeechSynthesizer
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_isDisposed)
+        AzureSpeechRecognizer? recognizer;
+        AzureSpeechSynthesizer? synthesizer;
+        lock (_resourceGate)
         {
-            return;
+            if (_isDisposed) { return; }
+            _isDisposed = true;
+            recognizer = _recognizer;
+            synthesizer = _synthesizer;
         }
-
-        _isDisposed = true;
 
         _logger.LogInformation("Disposing Azure Speech Service");
 
         // Dispose recognizer if it was created
-        if (_recognizer is not null)
+        try
         {
-            await _recognizer.DisposeAsync().ConfigureAwait(false);
+            if (recognizer is not null) { await recognizer.DisposeAsync().ConfigureAwait(false); }
         }
-
-        // Dispose synthesizer if it was created
-        if (_synthesizer is not null)
-        {
-            _synthesizer.Dispose();
-        }
+        finally { synthesizer?.Dispose(); }
 
         // SpeechConfig doesn't implement IDisposable in the Azure Speech SDK
         // It will be garbage collected when no longer referenced
