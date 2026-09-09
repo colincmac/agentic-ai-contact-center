@@ -15,9 +15,11 @@ derived from here.
 ## Current state
 
 The [.NET implementation and tests](../../code/ContactCenter.slnx) are present.
-A [measured local functional validation record](2026-09-08-code-adoption-validation.md)
-captures a focused 67-test run. It does not validate live telephony, model
-inference, distributed deployment, authentication policy suitability, or scale.
+A [runtime implementation validation record](2026-09-09-dotnet-runtime-validation.md)
+captures 445 passing tests across the two affected projects. The
+[earlier baseline](2026-09-08-code-adoption-validation.md) remains historical.
+Neither record validates live telephony, model inference, distributed deployment,
+authentication-provider assurance, or scale.
 Architecture capacity figures remain modeled targets.
 
 Known gaps include:
@@ -41,3 +43,4 @@ Known gaps include:
 | Record | Class | Scope |
 | --- | --- | --- |
 | [2026-09-08 code-adoption validation](2026-09-08-code-adoption-validation.md) | `measured` | Focused local .NET unit tests; not performance or end-to-end readiness evidence |
+| [2026-09-09 .NET runtime validation](2026-09-09-dotnet-runtime-validation.md) | `measured` | 445 passing tests in the implementation working tree; explicit integration limitations |

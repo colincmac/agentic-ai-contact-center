@@ -32,7 +32,7 @@ public enum AgentTier
 
     /// <summary>
     /// Tier 4: Pure DTMF menu navigation. No AI, no speech processing.
-    /// Infinite scale, zero AI dependency.
+    /// No generative AI dependency; admission still requires an explicit capacity.
     /// </summary>
     DtmfOnly = 4
 }
@@ -44,7 +44,7 @@ public sealed class AgentTierConfig
 {
     /// <summary>
     /// Maximum number of concurrent sessions allowed for this tier.
-    /// Null means unlimited.
+    /// Null means unconfigured and prevents admission. Zero temporarily stops admissions.
     /// </summary>
     public int? MaxConcurrent { get; set; }
 
@@ -70,13 +70,12 @@ public sealed class AgentTierOptions
 
     /// <summary>
     /// Per-tier configuration keyed by <see cref="AgentTier"/>.
-    /// Tiers not present in this dictionary use default settings (enabled, unlimited).
+    /// Missing tiers and tiers without an explicit capacity cannot admit sessions.
+    /// Configure limits from the deployed backend's validated capacity before enabling traffic.
     /// </summary>
     public Dictionary<AgentTier, AgentTierConfig> Tiers { get; set; } = new()
     {
-        [AgentTier.RealtimeVoice] = new AgentTierConfig { MaxConcurrent = 50_000, Enabled = true },
-        [AgentTier.ChatCompletionTts] = new AgentTierConfig { MaxConcurrent = 150_000, Enabled = true },
-        [AgentTier.SmallLanguageModel] = new AgentTierConfig { MaxConcurrent = 200_000, Enabled = true },
+        [AgentTier.RealtimeVoice] = new AgentTierConfig { Enabled = true },
         [AgentTier.IntentNlu] = new AgentTierConfig { Enabled = true },
         [AgentTier.DtmfOnly] = new AgentTierConfig { Enabled = true },
     };
@@ -88,8 +87,6 @@ public sealed class AgentTierOptions
     public List<AgentTier> FallbackOrder { get; set; } =
     [
         AgentTier.RealtimeVoice,
-        AgentTier.ChatCompletionTts,
-        AgentTier.SmallLanguageModel,
         AgentTier.IntentNlu,
         AgentTier.DtmfOnly,
     ];
@@ -100,4 +97,37 @@ public sealed class AgentTierOptions
     /// are subject to tier selection.
     /// </summary>
     public bool AllowMidCallDegradation { get; set; } = true;
+
+    internal void Validate()
+    {
+        var failures = new List<string>();
+        if (FallbackOrder is null || FallbackOrder.Count == 0)
+        {
+            failures.Add("AgentTiers:FallbackOrder must contain at least one tier.");
+        }
+        else
+        {
+            for (var i = 0; i < FallbackOrder.Count; i++)
+            {
+                if (!Enum.IsDefined(FallbackOrder[i])
+                    || (i > 0 && (int)FallbackOrder[i] <= (int)FallbackOrder[i - 1]))
+                {
+                    failures.Add("AgentTiers:FallbackOrder must contain known, unique tiers in degradation order.");
+                    break;
+                }
+            }
+        }
+
+        if (Tiers is null || Tiers.Any(pair =>
+            !Enum.IsDefined(pair.Key) || pair.Value is null || pair.Value.MaxConcurrent is < 0))
+        {
+            failures.Add("AgentTiers:Tiers must contain known tiers with nonnegative explicit capacities.");
+        }
+
+        if (failures.Count != 0)
+        {
+            throw new Microsoft.Extensions.Options.OptionsValidationException(
+                Microsoft.Extensions.Options.Options.DefaultName, typeof(AgentTierOptions), failures);
+        }
+    }
 }

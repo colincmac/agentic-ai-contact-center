@@ -2,6 +2,11 @@
 using Agents.AI.ContactCenter.IvrWorkflow.Predicates;
 using Agents.AI.ContactCenter.IvrWorkflow.Tools;
 using Microsoft.Extensions.AI;
+using Agents.AI.ContactCenter.Authentication;
+using Agents.AI.ContactCenter.Authorization;
+using Agents.AI.ContactCenter.IvrWorkflow.Execution;
+using Agents.AI.ContactCenter.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Agents.AI.ContactCenter.IvrWorkflow.Compilation;
 
@@ -12,13 +17,26 @@ public sealed class WorkflowRuntimeBinder
 {
     private readonly IIvrToolRegistry _toolRegistry;
     private readonly INamedEdgePredicateProvider _namedPredicates;
+    private readonly HashSet<string> _authenticators;
+    private readonly IServiceProvider? _services;
+    private readonly HashSet<string> _actions;
+    private readonly HashSet<string> _profiles;
 
     public WorkflowRuntimeBinder(
         IIvrToolRegistry toolRegistry,
-        INamedEdgePredicateProvider namedPredicates)
+        INamedEdgePredicateProvider namedPredicates,
+        IEnumerable<ICallerAuthenticator>? authenticators = null,
+        IServiceProvider? services = null,
+        IEnumerable<ICallWorkflowAction>? actions = null,
+        IOptions<CallInteractionOptions>? interactionOptions = null)
     {
         _toolRegistry = toolRegistry;
         _namedPredicates = namedPredicates;
+        _authenticators = (authenticators ?? []).OfType<ICredentialAuthenticator>()
+            .Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _services = services;
+        _actions = (actions ?? []).Select(a => a.Name).ToHashSet(StringComparer.Ordinal);
+        _profiles = (interactionOptions?.Value.Profiles ?? []).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
     }
 
     public CompiledCallWorkflow Bind(CompiledCallWorkflow workflow)
@@ -30,6 +48,21 @@ public sealed class WorkflowRuntimeBinder
 
         foreach (var stage in workflow.Stages)
         {
+            foreach (var profile in stage.Blueprint.InteractionProfiles)
+            {
+                if (!_profiles.Contains(profile)) { errors.Add($"Stage '{stage.Id}' references unknown interaction profile '{profile}'."); }
+            }
+            if (stage.Blueprint.Action is { } action && !_actions.Contains(action))
+            {
+                errors.Add($"Stage '{stage.Id}' references unknown action '{action}'.");
+            }
+            foreach (var name in stage.AuthenticationPlan?.Steps.SelectMany(g => g.AuthenticatorNames) ?? [])
+            {
+                if (!_authenticators.Contains(name))
+                {
+                    errors.Add($"Stage '{stage.Id}' references unknown credential authenticator '{name}'.");
+                }
+            }
             var edges = BindEdges(stage, errors);
             var tools = BindTools(stage, errors);
             stages.Add(new CompiledStage(
@@ -80,7 +113,7 @@ public sealed class WorkflowRuntimeBinder
         {
             if (_toolRegistry.TryGetBinding(name, out var binding) && binding is not null)
             {
-                tools.Add(binding);
+                tools.Add(binding is AIFunction function ? new AuthorizedWorkflowFunction(function, stage.Blueprint, _services) : binding);
             }
             else
             {

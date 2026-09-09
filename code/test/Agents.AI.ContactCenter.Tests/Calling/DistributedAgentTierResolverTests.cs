@@ -6,11 +6,30 @@ using Agents.AI.ContactCenter.Coordination.Core;
 using Agents.AI.ContactCenter.Exceptions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using Agents.AI.ContactCenter.Calling.Strategies;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
 
 namespace Agents.AI.ContactCenter.Tests.Calling;
 
 public class DistributedAgentTierResolverTests
 {
+    [Fact]
+    public void ExplicitConfiguredOrder_ReplacesInitializedDefaults()
+    {
+        var host = Host.CreateApplicationBuilder();
+        host.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AgentTiers:FallbackOrder:0"] = "DtmfOnly",
+            ["AgentTiers:Tiers:DtmfOnly:MaxConcurrent"] = "2",
+        });
+        host.AddDistributedAgentTierResolver();
+        using var provider = host.Services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<AgentTierOptions>>().Value;
+        Assert.Equal([AgentTier.DtmfOnly], options.FallbackOrder);
+        Assert.Equal(2, options.Tiers[AgentTier.DtmfOnly].MaxConcurrent);
+    }
     [Fact]
     public async Task ResolveAsync_Returns_First_Tier_In_Order_When_It_Has_Capacity()
     {
@@ -265,15 +284,13 @@ public class DistributedAgentTierResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_Honours_Custom_Fallback_Order()
+    public async Task ResolveAsync_Rejects_Order_That_Upgrades_After_Degradation()
     {
         var opts = DefaultOptions();
         opts.FallbackOrder = [AgentTier.DtmfOnly, AgentTier.RealtimeVoice];
         var (resolver, _, _) = CreateResolver(opts);
 
-        var tier = await resolver.ResolveAsync();
-
-        Assert.Equal(AgentTier.DtmfOnly, tier);
+        await Assert.ThrowsAsync<OptionsValidationException>(() => resolver.ResolveAsync().AsTask());
     }
 
     [Fact]
@@ -334,19 +351,130 @@ public class DistributedAgentTierResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_ClusterShare_PassesThrough_Unbounded_Cap()
+    public async Task ResolveAsync_Unconfigured_Cap_Is_Not_Unlimited()
     {
         var opts = DefaultOptions();
         opts.Tiers[AgentTier.RealtimeVoice].MaxConcurrent = null;
         var (resolver, tracker, _) = CreateResolver(opts, clusterShare: 0.5);
 
-        for (var i = 0; i < 50; i++)
-        {
-            Assert.Equal(AgentTier.RealtimeVoice, await resolver.ResolveAsync());
-        }
-
-        Assert.Equal(50, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
+        Assert.Equal(AgentTier.ChatCompletionTts, await resolver.ResolveAsync());
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
     }
+
+    [Fact]
+    public async Task Default_options_do_not_claim_backend_capacity()
+    {
+        var options = new AgentTierOptions();
+        Assert.Equal(
+            [AgentTier.RealtimeVoice, AgentTier.IntentNlu, AgentTier.DtmfOnly],
+            options.FallbackOrder);
+        var (resolver, tracker, _) = CreateResolver(options);
+
+        await Assert.ThrowsAsync<CapacityExhaustedException>(() => resolver.ResolveAsync().AsTask());
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
+    }
+
+    [Fact]
+    public async Task Missing_tier_configuration_is_not_implicitly_enabled()
+    {
+        var options = DefaultOptions();
+        options.Tiers.Remove(AgentTier.RealtimeVoice);
+        var (resolver, tracker, _) = CreateResolver(options);
+
+        Assert.Equal(AgentTier.ChatCompletionTts, await resolver.ResolveAsync());
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
+    }
+
+    [Fact]
+    public async Task Preferred_tier_outside_configured_order_is_never_admitted()
+    {
+        var options = DefaultOptions();
+        options.FallbackOrder = [AgentTier.IntentNlu, AgentTier.DtmfOnly];
+        var (resolver, tracker, _) = CreateResolver(options);
+
+        Assert.Equal(AgentTier.IntentNlu, await resolver.ResolveAsync(AgentTier.RealtimeVoice));
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
+    }
+
+    [Fact]
+    public async Task Unregistered_strategies_are_skipped_before_admission()
+    {
+        var services = new ServiceCollection();
+        services.AddKeyedSingleton<ILeafConversationStrategyFactory>(
+            AgentTier.DtmfOnly, (_, _) => throw new InvalidOperationException("Must not instantiate during admission."));
+        using var provider = services.BuildServiceProvider();
+        var tracker = new InMemoryDistributedCapacityTracker();
+        var resolver = new DistributedAgentTierResolver(
+            new TestOptionsMonitor<AgentTierOptions>(DefaultOptions()),
+            new InMemoryTierCeilingProvider(Options.Create(new HyperscaleOptions())),
+            tracker,
+            NullLogger<DistributedAgentTierResolver>.Instance,
+            strategyServices: provider.GetRequiredService<IServiceProviderIsKeyedService>());
+
+        Assert.Equal(AgentTier.DtmfOnly, await resolver.ResolveAsync());
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
+    }
+
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("duplicate")]
+    [InlineData("unknown")]
+    [InlineData("negative-capacity")]
+    public async Task Invalid_configuration_fails_before_admission(string invalid)
+    {
+        var options = DefaultOptions();
+        switch (invalid)
+        {
+            case "empty": options.FallbackOrder = []; break;
+            case "duplicate": options.FallbackOrder = [AgentTier.RealtimeVoice, AgentTier.RealtimeVoice]; break;
+            case "unknown": options.FallbackOrder = [(AgentTier)123]; break;
+            case "negative-capacity": options.Tiers[AgentTier.RealtimeVoice].MaxConcurrent = -1; break;
+        }
+        var (resolver, tracker, _) = CreateResolver(options);
+
+        await Assert.ThrowsAsync<OptionsValidationException>(() => resolver.ResolveAsync().AsTask());
+        await Assert.ThrowsAsync<OptionsValidationException>(() => resolver.ResolveFallbackAsync(AgentTier.RealtimeVoice).AsTask());
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.RealtimeVoice));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancellation_during_atomic_admission_never_advances_and_releases_a_granted_slot(bool admitted)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var tracker = new CallbackCapacityTracker((_, _) =>
+        {
+            cancellation.Cancel();
+            return Task.FromResult(new CapacityAdmissionResult(admitted, admitted ? 1 : 0));
+        });
+        var resolver = ResolverWithTracker(tracker);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => resolver.ResolveAsync(cancellationToken: cancellation.Token).AsTask());
+
+        Assert.Equal([AgentTier.RealtimeVoice], tracker.Attempts);
+        Assert.Equal(admitted ? [AgentTier.RealtimeVoice] : Array.Empty<AgentTier>(), tracker.Releases);
+    }
+
+    [Fact]
+    public async Task Admission_backend_failure_is_not_treated_as_available_lower_capacity()
+    {
+        var tracker = new CallbackCapacityTracker((_, _) =>
+            Task.FromException<CapacityAdmissionResult>(new IOException("tracker unavailable")));
+        var resolver = ResolverWithTracker(tracker);
+
+        await Assert.ThrowsAsync<IOException>(() => resolver.ResolveAsync().AsTask());
+
+        Assert.Equal([AgentTier.RealtimeVoice], tracker.Attempts);
+        Assert.Empty(tracker.Releases);
+    }
+
+    private static DistributedAgentTierResolver ResolverWithTracker(IDistributedCapacityTracker tracker) => new(
+        new TestOptionsMonitor<AgentTierOptions>(DefaultOptions()),
+        new InMemoryTierCeilingProvider(Options.Create(new HyperscaleOptions())),
+        tracker,
+        NullLogger<DistributedAgentTierResolver>.Instance);
 
     private static (IAgentTierResolver Resolver, IDistributedCapacityTracker Tracker, ITierCeilingProvider Ceiling) CreateResolver(
         AgentTierOptions? options = null,
@@ -400,5 +528,28 @@ public class DistributedAgentTierResolverTests
         public T CurrentValue { get; set; }
         public T Get(string? name) => CurrentValue;
         public IDisposable? OnChange(Action<T, string?> listener) => null;
+    }
+
+    private sealed class CallbackCapacityTracker(
+        Func<AgentTier, CancellationToken, Task<CapacityAdmissionResult>> admit) : IDistributedCapacityTracker
+    {
+        public List<AgentTier> Attempts { get; } = [];
+        public List<AgentTier> Releases { get; } = [];
+
+        public Task<CapacityAdmissionResult> TryAdmitAsync(AgentTier tier, long cap, CancellationToken cancellationToken = default)
+        {
+            Attempts.Add(tier);
+            return admit(tier, cancellationToken);
+        }
+
+        public Task ReleaseAsync(AgentTier tier, CancellationToken cancellationToken = default)
+        {
+            Assert.False(cancellationToken.CanBeCanceled);
+            Releases.Add(tier);
+            return Task.CompletedTask;
+        }
+
+        public Task<long> GetCountAsync(AgentTier tier, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

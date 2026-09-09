@@ -19,6 +19,7 @@ implemented.
 | Realtime | [`RealtimeCallWorkflowStrategy`](../../code/Agents.AI.ContactCenter/Calling/Strategies/RealtimeVoice/RealtimeCallWorkflowStrategy.cs) | Realtime agent audio, stage prompts/tools, and DTMF menu shortcuts |
 | Intent NLU | [`NluCallWorkflowStrategy`](../../code/Agents.AI.ContactCenter/Calling/Strategies/Nlu/NluCallWorkflowStrategy.cs) | Streaming speech recognition, intent classification, synthesized prompts, and DTMF shortcuts |
 | DTMF | [`DtmfCallWorkflowStrategy`](../../code/Agents.AI.ContactCenter/Calling/Strategies/Dtmf/DtmfCallWorkflowStrategy.cs) | DTMF navigation/credential collection and synthesized PCM prompts |
+| Recorded DTMF | [`RecordedDtmfCallWorkflowStrategy`](../../code/Agents.AI.ContactCenter/Calling/Strategies/Dtmf/RecordedDtmfCallWorkflowStrategy.cs) | ACS file playback, callback-correlated digit collection, and terminal hangup after playback |
 | Composite | [`CompositeFallbackStrategy`](../../code/Agents.AI.ContactCenter/Calling/Strategies/Composite/CompositeFallbackStrategy.cs) | Ordered leaf-strategy selection and reactive fault fallback |
 
 The [registration surface](../../code/Agents.AI.ContactCenter/DependencyInjection/CallWorkflowStrategyExtensions.cs)
@@ -28,13 +29,15 @@ are not additional implemented strategies. The code's enum numbering is not
 the four-tier architectural numbering in
 [ADR-0008](../adr/0008-graceful-degradation-realtime-to-dtmf.md).
 
-Current DTMF depends on a synthesizer and an audio-capable edge. The
+The streaming DTMF adapter depends on a synthesizer and an audio-capable edge. The
 [ACS verb edge](../../code/Agents.AI.ContactCenter/Calling/Core/AcsCallAutomationEdge.cs)
-is a separate primitive, not a wired verb-mode DTMF strategy or the
-speech-independent prerecorded floor required by
+can now be paired with the recorded DTMF adapter for a speech-independent path.
+The host must provide prompt assets and explicit input-failure routes. Replacing
+an active streaming edge remains host integration, not an automatic guarantee of
+the fallback model in
 [ADR-0007](../adr/0007-dtmf-bidirectional-websocket-vs-callback-api.md) and ADR-0008.
-Workflow/action parity across tiers, admission on every startup-fallback path,
-and caller-authentication behavior remain adoption gaps.
+See the [current workflow guide](../../code/Agents.AI.ContactCenter/IvrWorkflow/README.md)
+for shared actions, explicit verification failure, and profile configuration.
 
 Current per-call state uses
 [`CallStateProjector`](../../code/Agents.AI.ContactCenter/State/CallStateProjector.cs)
@@ -47,8 +50,10 @@ before treating the design as implemented or validated.
 
 ## Review direction: interaction profiles
 
-This is a design recommendation, not a new schema accepted by the current YAML
-reader or a revision of the accepted ADR tier model.
+Named host profiles and per-stage `interactionProfiles` restrictions are now
+implemented by [CallInteractionOptions](../../code/Agents.AI.ContactCenter/Configuration/CallInteractionOptions.cs).
+The examples below describe the direction; they are not a revision of the accepted
+ADR tier numbering or a claim that every listed backend is implemented.
 
 Keep business flow, interaction policy, caller-authentication policy, and ingress
 configuration separate. Prefer named, configurable interaction profiles over

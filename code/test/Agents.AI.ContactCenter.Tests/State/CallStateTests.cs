@@ -93,7 +93,7 @@ public class CallStateTests
     }
 
     [Fact]
-    public void IvrProvider_Tracks_Steps_And_Captures_Slots()
+    public void IvrProvider_Tracks_Steps_And_Captures_Validated_Workflow_Data()
     {
         var provider = (ICallStateProjection)new IvrStateProjection();
         var typed = (IvrStateProjection)provider;
@@ -101,10 +101,8 @@ public class CallStateTests
         var now = DateTimeOffset.UtcNow;
 
         provider.Fold(bag, new StrategyEvent.WorkflowStepEntered("greeting", now));
-        provider.Fold(bag, new StrategyEvent.FunctionCalled(
-            "RecordCallerName",
-            new Dictionary<string, object?> { ["CallerFirstName"] = "Jane", ["CallerLastName"] = "Doe" },
-            "fn-1",
+        provider.Fold(bag, new StrategyEvent.WorkflowDataRecorded(
+            new Dictionary<string, string?> { ["CallerFirstName"] = "Jane", ["CallerLastName"] = "Doe" },
             now));
         provider.Fold(bag, new StrategyEvent.WorkflowStepEntered("verify", now));
 
@@ -114,6 +112,27 @@ public class CallStateTests
         Assert.Equal("Jane", snapshot.Slots["CallerFirstName"]);
         Assert.Equal("Doe", snapshot.Slots["CallerLastName"]);
         Assert.Equal(global::Agents.AI.ContactCenter.IvrWorkflow.IvrWorkflowStatus.Running, snapshot.Status);
+    }
+
+    [Fact]
+    public void IvrProvider_Does_Not_Capture_Arbitrary_Function_Arguments()
+    {
+        var provider = (ICallStateProjection)new IvrStateProjection();
+        var typed = (IvrStateProjection)provider;
+        var bag = new CallStateBag();
+        var now = DateTimeOffset.UtcNow;
+        provider.Fold(bag, new StrategyEvent.WorkflowDataRecorded(
+            new Dictionary<string, string?> { ["CallerFirstName"] = "Validated" }, now));
+
+        provider.Fold(bag, new StrategyEvent.FunctionCalled(
+            "RecordCallerName",
+            new Dictionary<string, object?> { ["CallerFirstName"] = "Unvalidated", ["Pin"] = "sensitive-value" },
+            "fn-1", now));
+
+        var snapshot = typed.Read(bag);
+        Assert.Single(snapshot.Slots);
+        Assert.Equal("Validated", snapshot.Slots["CallerFirstName"]);
+        Assert.False(snapshot.Slots.ContainsKey("Pin"));
     }
 
     [Fact]
@@ -291,7 +310,7 @@ public class CallStateTests
     }
 
     [Fact]
-    public async Task Hydrate_Replay_Failure_Is_NonFatal()
+    public async Task Hydrate_Replay_Failure_Is_Surfaced()
     {
         var store = new InMemoryCallStateStore();
 
@@ -307,11 +326,11 @@ public class CallStateTests
             new CallStateOptions { EnableEventLog = true },
             new ThrowingEventLog());
 
-        await projector.HydrateAsync(); // replay throws internally; HydrateAsync must not propagate
-
-        Assert.Equal(CallerVerificationLevel.AniMatch, projector.Get<AuthSnapshot>().Level);
-
-        await projector.DisposeAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => projector.HydrateAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => projector.PersistenceCompletion);
+        Assert.Throws<InvalidOperationException>(() =>
+            projector.Fold(new StrategyEvent.Transcript("caller", "not accepted", true, DateTimeOffset.UtcNow)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => projector.DisposeAsync().AsTask());
     }
 
     private sealed class ThrowingEventLog : ICallEventLog

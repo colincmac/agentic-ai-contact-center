@@ -145,7 +145,7 @@ public static class AzureSpeechServiceCollectionExtensions
             return new ResilientSpeechSynthesizer(endpoints, options.Resilience, logger);
         });
 
-        services.TryAddSingleton<ResilientSpeechRecognizer>(static sp =>
+        services.TryAddScoped<ResilientSpeechRecognizer>(static sp =>
         {
             var registry = sp.GetRequiredService<AzureSpeechServiceEndpointRegistry>();
             var options = sp.GetRequiredService<IOptions<AzureSpeechServiceOptions>>().Value;
@@ -159,7 +159,7 @@ public static class AzureSpeechServiceCollectionExtensions
         });
 
         services.TryAddSingleton<ISpeechSynthesizer>(static sp => sp.GetRequiredService<ResilientSpeechSynthesizer>());
-        services.TryAddSingleton<ISpeechRecognizer>(static sp => sp.GetRequiredService<ResilientSpeechRecognizer>());
+        services.TryAddScoped<ISpeechRecognizer>(static sp => sp.GetRequiredService<ResilientSpeechRecognizer>());
     }
 
     /// <summary>
@@ -167,7 +167,7 @@ public static class AzureSpeechServiceCollectionExtensions
     /// instance per configured endpoint. Resolved lazily so options validation
     /// runs first.
     /// </summary>
-    internal sealed class AzureSpeechServiceEndpointRegistry
+    internal sealed class AzureSpeechServiceEndpointRegistry : IAsyncDisposable
     {
         public AzureSpeechServiceEndpointRegistry(
             IOptions<AzureSpeechServiceOptions> options,
@@ -183,7 +183,11 @@ public static class AzureSpeechServiceCollectionExtensions
 
         public IReadOnlyList<EndpointEntry> Services { get; }
 
+        public async ValueTask DisposeAsync()
+        {
+            foreach (var entry in Services) { await entry.Service.DisposeAsync().ConfigureAwait(false); }
+        }
+
         internal sealed record EndpointEntry(string Name, AzureSpeechService Service);
     }
 }
-

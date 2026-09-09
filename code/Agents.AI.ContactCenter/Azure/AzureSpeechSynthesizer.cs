@@ -12,9 +12,7 @@ namespace Agents.AI.ContactCenter.Azure;
 
 
 /// <summary>
-/// Pool of pre-warmed <see cref="SpeechSynthesizer"/> instances. Creating a synthesizer
-/// is expensive (it opens a websocket and authenticates), so we recycle them between
-/// calls to avoid first-byte latency.
+/// Reuses synthesizer instances without making network calls during synchronous construction.
 /// </summary>
 internal sealed class SynthesizerPool : IDisposable
 {
@@ -22,6 +20,8 @@ internal sealed class SynthesizerPool : IDisposable
     private readonly ConcurrentStack<SpeechSynthesizer> _synthesizerStack = new();
     private readonly int _maximumRetainedCapacity;
     private readonly ILogger _logger;
+    private readonly Lock _gate = new();
+    private bool _disposed;
 
     public SynthesizerPool(
         Func<SpeechSynthesizer> synthesizerGenerator,
@@ -29,56 +29,58 @@ internal sealed class SynthesizerPool : IDisposable
         int maximumRetainedCapacity = 100,
         ILogger? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(synthesizerGenerator);
+        ArgumentOutOfRangeException.ThrowIfNegative(initialCapacity);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumRetainedCapacity);
         _synthesizerGenerator = synthesizerGenerator;
         _maximumRetainedCapacity = maximumRetainedCapacity;
         _logger = logger ?? NullLogger.Instance;
 
-        _logger.LogInformation("Creating {InitialCapacity} synthesizer(s) and warming up", initialCapacity);
+        _logger.LogDebug("Creating {InitialCapacity} synthesizer(s) without network warm-up", initialCapacity);
         for (var i = 0; i < initialCapacity; i++)
         {
             var item = _synthesizerGenerator();
 
-            // warm up synthesizer so the first real request doesn't pay the connection cost
-            item.SpeakTextAsync("1").GetAwaiter().GetResult();
             Put(item);
         }
     }
 
     public SpeechSynthesizer Get()
     {
-        if (!_synthesizerStack.TryPop(out var item))
+        lock (_gate)
         {
-            _logger.LogDebug("Pool empty; creating new synthesizer");
-            item = _synthesizerGenerator();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_synthesizerStack.TryPop(out var item)) { return item; }
         }
-
-        return item;
+        return _synthesizerGenerator();
     }
 
     public void Put(SpeechSynthesizer item)
     {
-        if (_synthesizerStack.Count < _maximumRetainedCapacity)
+        lock (_gate)
         {
-            _synthesizerStack.Push(item);
+            if (!_disposed && _synthesizerStack.Count < _maximumRetainedCapacity)
+            {
+                _synthesizerStack.Push(item);
+                return;
+            }
         }
-        else
-        {
-            item.Dispose();
-        }
+        item.Dispose();
     }
 
     public void Dispose()
     {
-        while (_synthesizerStack.TryPop(out var synthesizer))
+        lock (_gate)
         {
-            synthesizer.Dispose();
+            _disposed = true;
+            while (_synthesizerStack.TryPop(out var synthesizer)) { synthesizer.Dispose(); }
         }
     }
 }
 /// <summary>
 /// <see cref="ISpeechSynthesizer"/> implementation backed by the Azure Speech SDK.
-/// Wraps a <see cref="SynthesizerPool"/> so concurrent callers share warmed-up
-/// connections, and streams audio frames as they arrive instead of buffering
+/// Wraps a <see cref="SynthesizerPool"/> so concurrent callers reuse
+/// instances, and streams audio frames as they arrive instead of buffering
 /// the full utterance.
 /// </summary>
 public sealed class AzureSpeechSynthesizer : ISpeechSynthesizer, IDisposable
@@ -95,7 +97,8 @@ public sealed class AzureSpeechSynthesizer : ISpeechSynthesizer, IDisposable
         SpeechConfig speechConfig,
         int concurrency = 2,
         string gender = "Female",
-        ILogger<AzureSpeechSynthesizer>? logger = null)
+        ILogger<AzureSpeechSynthesizer>? logger = null,
+        int maximumRetainedCapacity = 100)
     {
         _speechConfig = speechConfig;
 
@@ -106,6 +109,7 @@ public sealed class AzureSpeechSynthesizer : ISpeechSynthesizer, IDisposable
         _pool = new SynthesizerPool(
             () => new SpeechSynthesizer(_speechConfig, null),
             initialCapacity: concurrency,
+            maximumRetainedCapacity: maximumRetainedCapacity,
             logger: _logger);
     }
 

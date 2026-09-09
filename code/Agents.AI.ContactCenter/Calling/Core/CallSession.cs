@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Shared.Diagnostics;
+using Agents.AI.ContactCenter.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Agents.AI.ContactCenter.Calling.Core;
 
@@ -41,6 +43,7 @@ public sealed class CallSession : ICallSession
     private readonly List<ICallObserver> _observers;
 
     private readonly List<Channel<StrategyEvent>> _observerFanout = [];
+    private readonly HashSet<int> _observerOverflowLogged = [];
     private readonly Lock _stateLock = new();
     private readonly SemaphoreSlim _callerEdgeGate = new(1, 1);
     private readonly SemaphoreSlim _supervisorGate = new(1, 1);
@@ -72,6 +75,7 @@ public sealed class CallSession : ICallSession
     private Task? _supervisorPumps;
 
     private Task? _eventPump;
+    private Task? _persistenceMonitor;
     private Task? _endTask;
     private Task? _terminalReactionTask;
     private CallSessionState _state = CallSessionState.Created;
@@ -186,12 +190,15 @@ public sealed class CallSession : ICallSession
             // Hydrate persisted call state (failover / mid-call resume) and start the background
             // persister BEFORE the event pump folds anything into it.
             await _stateProjector.HydrateAsync(_cts.Token).ConfigureAwait(false);
+            _persistenceMonitor = ObservePersistenceAsync();
 
             // Wire observers BEFORE starting the event pump so no event is dropped.
             foreach (var observer in _observers)
             {
-                var bridge = Channel.CreateUnbounded<StrategyEvent>(
-                    new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+                var capacity = _scope.ServiceProvider.GetService<IOptions<CallStateOptions>>()?.Value.ObserverQueueCapacity ?? 256;
+                ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+                var bridge = Channel.CreateBounded<StrategyEvent>(
+                    new BoundedChannelOptions(capacity) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
                 _observerFanout.Add(bridge);
 
                 await observer.StartAsync(new CallObservation
@@ -223,6 +230,22 @@ public sealed class CallSession : ICallSession
             }
             Interlocked.Exchange(ref _qualityRegistration, null)?.Dispose();
             throw;
+        }
+    }
+
+    private async Task ObservePersistenceAsync()
+    {
+        try
+        {
+            await _stateProjector.PersistenceCompletion.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (!_cts.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Call-state persistence failed for {CallId}; terminating the unsafe session.", CallId);
+                RequestTermination("state_persistence_failed", faulted: true, ex);
+            }
         }
     }
 
@@ -270,6 +293,7 @@ public sealed class CallSession : ICallSession
             try
             {
                 await callerEdge.ConnectAsync(cancellationToken).ConfigureAwait(false);
+                StartCallerEdgePumps(callerEdge);
 
                 if (Interlocked.CompareExchange(ref _strategyStarted, 1, 0) == 0)
                 {
@@ -280,16 +304,10 @@ public sealed class CallSession : ICallSession
                     await _strategy.ResumeAsync(cancellationToken).ConfigureAwait(false);
                 }
 
-                StartCallerEdgePumps(callerEdge);
             }
             catch
             {
-                callerEdge.Disconnected -= OnEdgeDisconnectedAsync;
-                lock (_stateLock)
-                {
-                    _callerEdge = null;
-                }
-                try { await callerEdge.DisposeAsync().ConfigureAwait(false); } catch { /* activation failure */ }
+                await DetachCallerEdgeCoreAsync(suspendStrategy: false, CancellationToken.None).ConfigureAwait(false);
                 await TransitionAsync(CallSessionState.Created).ConfigureAwait(false);
                 throw;
             }
@@ -914,6 +932,9 @@ public sealed class CallSession : ICallSession
         InboundAudio = _strategyInbound.Reader,
         InboundDtmf = _strategyDtmf.Reader,
         CallerMetadata = callerEdge.Metadata,
+        EdgeCapabilities = callerEdge.Capabilities,
+        InboundSignals = callerEdge.InboundSignals,
+        Control = callerEdge as ICallControl,
         StateProjector = _stateProjector,
     };
 
@@ -1059,10 +1080,7 @@ public sealed class CallSession : ICallSession
                             directive.GetType().Name,
                             callerEdge.Capabilities,
                             DateTimeOffset.UtcNow);
-                        foreach (var bridge in _observerFanout)
-                        {
-                            bridge.Writer.TryWrite(mismatch);
-                        }
+                        PublishToObservers(mismatch);
                     }
                 }
 
@@ -1174,6 +1192,25 @@ public sealed class CallSession : ICallSession
         }
     }
 
+    private void PublishToObservers(StrategyEvent item)
+    {
+        for (var i = 0; i < _observerFanout.Count; i++)
+        {
+            if (_observerFanout[i].Writer.TryWrite(item)) { continue; }
+            bool firstOverflow;
+            lock (_stateLock) { firstOverflow = _observerOverflowLogged.Add(i); }
+            if (firstOverflow)
+            {
+                _logger.LogWarning("Observer {ObserverId} queue overflowed for {CallId}; lossless={Lossless}.",
+                    _observers[i].ObserverId, CallId, _observers[i].RequiresLosslessDelivery);
+            }
+            if (_observers[i].RequiresLosslessDelivery)
+            {
+                RequestTermination("required_observer_overflow", faulted: true);
+            }
+        }
+    }
+
     private async Task PumpEventsAsync()
     {
         try
@@ -1185,10 +1222,7 @@ public sealed class CallSession : ICallSession
 
                 // State folding happens at emit time via the strategy's FoldingChannelWriter funnel
                 // (Option A), so this pump must NOT fold again — it only fans out to observers.
-                foreach (var bridge in _observerFanout)
-                {
-                    bridge.Writer.TryWrite(ev);
-                }
+                PublishToObservers(ev);
 
                 if (ev is StrategyEvent.Faulted fault)
                 {

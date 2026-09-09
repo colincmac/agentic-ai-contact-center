@@ -1,52 +1,50 @@
 using System.Collections.Frozen;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Channels;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.Configuration;
-using Agents.AI.ContactCenter.Exceptions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agents.AI.ContactCenter.State;
 
 /// <summary>
-/// Per-call owner of the immutable state slices. Folds the <see cref="StrategyEvent"/> stream into the
-/// <see cref="CallStateBag"/> on a single writer (the call's event pump), exposes lock-free typed reads,
-/// hydrates from the snapshot store on (re)attach, and schedules debounced persistence.
+/// Per-call owner of immutable state slices. Live folds and admission to persistence share one lock;
+/// typed reads remain lock-free. A separate single-reader projection tracks the durable log prefix,
+/// keeping snapshot serialization and store I/O off the emit path.
 /// </summary>
-/// <remarks>
-/// Registered <c>Scoped</c> by <c>AddCallState</c> so every service in a call's DI scope shares one
-/// instance. Because the only writer is the single event-pump thread, no per-field locking is needed:
-/// slices are immutable snapshots published via atomic reference swaps and read lock-free.
-/// </remarks>
 public sealed class CallStateProjector : IPromptStateRenderer, IAsyncDisposable
 {
     private readonly string _callId;
     private readonly CallStateBag _bag = new();
+    private readonly CallStateBag _persistenceBag = new();
     private readonly ICallStateProjection[] _projections;
     private readonly FrozenDictionary<Type, ICallStateProjection> _byType;
     private readonly ICallStateStore _store;
     private readonly ICallEventLog? _eventLog;
-    private readonly CallStateOptions _options;
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger<CallStateProjector>? _logger;
-
-    // Persistence is kept off the fold hot path: Fold enqueues onto this single-reader channel; the
-    // background loop appends to the optional event log and writes debounced snapshots to the store.
-    private readonly Channel<StrategyEvent> _persistChannel = Channel.CreateUnbounded<StrategyEvent>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly ILogger<CallStateProjector> _logger;
+    private readonly Channel<PersistenceWork> _persistChannel;
+    private readonly int _queueCapacity;
+    private readonly int _snapshotEveryNEvents;
+    private readonly TimeSpan _shutdownTimeout;
     private readonly CancellationTokenSource _cts = new();
-    private readonly SemaphoreSlim _flushGate = new(1, 1);
-    private Task? _persistLoop;
-
-    // Single fold lock. The fold runs at emit time (the StateFoldingChannelWriter funnel),
-    // which can be driven by several strategy threads
     private readonly Lock _foldLock = new();
+    private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task? _hydrateTask;
+    private Task? _persistLoop;
+    private Task? _disposeTask;
+    private Exception? _failure;
+    private bool _disposing;
 
+    // Only hydration and then the single persistence reader access these fields and _persistenceBag.
     private long _version;
     private long _lastSequence;
     private int _sinceLastSnapshot;
-    private volatile bool _dirty;
+    private bool _dirty;
+    private readonly Dictionary<string, (object State, string Json)> _serializedSlices = new(StringComparer.Ordinal);
+
+    private readonly record struct PersistenceWork(StrategyEvent? Event, TaskCompletionSource? Flush = null);
 
     public CallStateProjector(
         string callId,
@@ -57,17 +55,32 @@ public sealed class CallStateProjector : IPromptStateRenderer, IAsyncDisposable
         ILoggerFactory? loggerFactory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(callId);
+        ArgumentNullException.ThrowIfNull(projections);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.PersistenceQueueCapacity, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.SnapshotEveryNEvents, 1);
+        if (options.ShutdownTimeout <= TimeSpan.Zero || options.ShutdownTimeout.TotalMilliseconds > uint.MaxValue - 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "ShutdownTimeout must be a positive, finite timer duration.");
+        }
 
         _callId = callId;
         _projections = [.. projections];
         _byType = _projections.ToFrozenDictionary(p => p.SnapshotType);
         _store = store;
-        _options = options;
         _eventLog = eventLog;
-        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-        _logger = _loggerFactory.CreateLogger<CallStateProjector>();
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<CallStateProjector>();
+        _queueCapacity = options.PersistenceQueueCapacity;
+        _snapshotEveryNEvents = options.SnapshotEveryNEvents;
+        _shutdownTimeout = options.ShutdownTimeout;
+        _persistChannel = Channel.CreateBounded<PersistenceWork>(new BoundedChannelOptions(_queueCapacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait,
+            AllowSynchronousContinuations = false,
+        });
     }
 
     /// <summary>The call this projector serves.</summary>
@@ -76,8 +89,13 @@ public sealed class CallStateProjector : IPromptStateRenderer, IAsyncDisposable
     /// <summary>The underlying slice bag (lock-free reads).</summary>
     internal CallStateBag Bag => _bag;
 
-    /// <summary>Lock-free typed read of a slice snapshot.</summary>
-    /// <exception cref="InvalidOperationException">No provider is registered for <typeparamref name="TState"/>.</exception>
+    /// <summary>
+    /// Completes on shutdown or faults when state admission, hydration, or persistence fails.
+    /// Hosts can observe this task even when no further events or flushes occur.
+    /// </summary>
+    public Task PersistenceCompletion => _completion.Task;
+
+    /// <summary>Lock-free typed read of a slice snapshot, not a durability acknowledgement.</summary>
     public TState Get<TState>() where TState : class
     {
         if (_byType.TryGetValue(typeof(TState), out var projection))
@@ -87,118 +105,200 @@ public sealed class CallStateProjector : IPromptStateRenderer, IAsyncDisposable
 
         throw new InvalidOperationException(
             $"No call-state projection is registered for slice type '{typeof(TState).Name}'. " +
-            $"Register one via AddCallStateProjection<T>().");
+            "Register one via AddCallStateProjection<T>().");
     }
 
     /// <summary>
-    /// Load the persisted snapshot (if any) into the bag, replay any event-log tail persisted after the
-    /// snapshot's <see cref="CallStateSnapshot.EventSequence"/> watermark, and start the background
-    /// persister. Call once, before the first <see cref="Fold"/>, from the call's start path so a mid-call
-    /// resume or pod failover picks up where the previous owner left off.
+    /// Restore the snapshot and ordered log tail, then start persistence. Call once before normal
+    /// event emission. Events folded before hydration are reapplied over the restored state.
+    /// Restore/replay failures propagate; partially restored state must not authorize a resumed call.
     /// </summary>
-    public async Task HydrateAsync(CancellationToken cancellationToken = default)
+    public Task HydrateAsync(CancellationToken cancellationToken = default)
     {
-        long watermark = 0;
+        lock (_foldLock)
+        {
+            ThrowIfUnavailable();
+            if (_hydrateTask is not null)
+            {
+                throw new InvalidOperationException("Call state hydration has already started.");
+            }
 
+            return _hydrateTask = HydrateCoreAsync(cancellationToken);
+        }
+    }
+
+    private async Task HydrateCoreAsync(CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
         try
         {
-            var snapshot = await _store.LoadAsync(_callId, cancellationToken).ConfigureAwait(false);
+            var snapshot = await _store.LoadAsync(_callId, linked.Token).ConfigureAwait(false);
             if (snapshot is not null)
             {
                 foreach (var projection in _projections)
                 {
                     if (snapshot.Slices.TryGetValue(projection.SliceId, out var json))
                     {
-                        try
-                        {
-                            projection.Restore(_bag, json);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.LogWarning(ex, "Restore failed for slice {SliceId} on call {CallId}", projection.SliceId, _callId);
-                        }
+                        projection.Restore(_persistenceBag, json);
                     }
                 }
 
                 _version = snapshot.Version;
-                watermark = snapshot.EventSequence;
+                _lastSequence = snapshot.EventSequence;
+            }
+
+            if (_eventLog is not null)
+            {
+                await foreach (var envelope in _eventLog.ReadAsync(_callId, _lastSequence, linked.Token).ConfigureAwait(false))
+                {
+                    if (envelope.Sequence <= _lastSequence)
+                    {
+                        throw new InvalidOperationException("Call event log replay must be strictly increasing.");
+                    }
+
+                    ApplyToProjections(_persistenceBag, envelope.Event);
+                    _lastSequence = envelope.Sequence;
+                    _dirty = true;
+                }
+            }
+            else
+            {
+                _lastSequence = 0;
+            }
+
+            lock (_foldLock)
+            {
+                linked.Token.ThrowIfCancellationRequested();
+                ThrowIfFailed();
+                foreach (var projection in _projections)
+                {
+                    var initial = projection.ReadBoxed(_persistenceBag);
+                    _persistenceBag.Set(projection.SliceId, initial);
+                    _bag.Set(projection.SliceId, initial);
+                }
+
+                // No reader runs yet. Rotate the bounded pre-hydration queue without changing order.
+                var buffered = _persistChannel.Reader.Count;
+                for (var i = 0; i < buffered; i++)
+                {
+                    if (!_persistChannel.Reader.TryRead(out var work))
+                    {
+                        throw new InvalidOperationException("Buffered call state was lost during hydration.");
+                    }
+
+                    ApplyToProjections(_bag, work.Event!);
+                    if (!_persistChannel.Writer.TryWrite(work))
+                    {
+                        throw new InvalidOperationException("Buffered call state could not be scheduled.");
+                    }
+                }
+
+                _persistLoop = Task.Run(RunPersistLoopAsync);
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Hydrate failed for call {CallId}; starting from initial state", _callId);
-        }
-
-        // Replay the event-log tail recorded after the snapshot watermark so a resume/failover catches up
-        // events that weren't folded into the last snapshot. Replayed events are folded straight into the
-        // providers — never re-appended or re-emitted, and HydrateAsync runs before the event pump starts.
-        // Best-effort: a replay failure leaves us on snapshot-only state rather than blocking the call.
-        var maxSequence = watermark;
-        if (_eventLog is not null)
-        {
-            try
+            if (ex is OperationCanceledException && _cts.IsCancellationRequested)
             {
-                await foreach (var envelope in _eventLog.ReadAsync(_callId, afterSequence: watermark, cancellationToken).ConfigureAwait(false))
-                {
-                    ApplyToProjections(envelope.Event);
-                    if (envelope.Sequence > maxSequence)
-                    {
-                        maxSequence = envelope.Sequence;
-                    }
-                }
+                ex = new TimeoutException($"Call-state persistence did not drain within {_shutdownTimeout}.", ex);
             }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Event-log replay failed for call {CallId}; continuing with snapshot-only state", _callId);
-            }
+            Fail(ex);
+            ExceptionDispatchInfo.Throw(ex);
         }
-
-        Volatile.Write(ref _lastSequence, maxSequence);
-        _persistLoop = Task.Run(RunPersistLoopAsync);
     }
 
     /// <summary>
-    /// Fold one event into every slice, then hand it to the background persister. Thread-safe: the
-    /// read-modify-write fold is serialized by a single lock so it can be driven directly from emit time
-    /// (the <see cref="StateFoldingChannelWriter"/> funnel) on any strategy thread. <see cref="Get{TState}"/>
-    /// reads stay lock-free.
+    /// Publish immediately and admit the same event to the ordered, bounded persistence queue.
+    /// No serialization or I/O occurs here. Overflow rejects the event before mutation and faults
+    /// this projector; accepted events are only eventually durable until a flush succeeds.
     /// </summary>
     public void Fold(StrategyEvent strategyEvent)
     {
         ArgumentNullException.ThrowIfNull(strategyEvent);
-
         lock (_foldLock)
         {
-            ApplyToProjections(strategyEvent);
-        }
+            ThrowIfUnavailable();
+            if (_hydrateTask is not null && _persistLoop is null)
+            {
+                throw new InvalidOperationException("Call state hydration must finish before folding events.");
+            }
 
-        // Non-blocking hand-off to the background persister. Buffered until HydrateAsync starts the loop.
-        _persistChannel.Writer.TryWrite(strategyEvent);
-    }
-
-    /// <summary>
-    /// Fold one event into every projection's slice. Shared by <see cref="Fold"/> (live event-pump path)
-    /// and <see cref="HydrateAsync"/> (event-log replay), which folds without enqueueing to the persister.
-    /// </summary>
-    private void ApplyToProjections(StrategyEvent strategyEvent)
-    {
-        for (var i = 0; i < _projections.Length; i++)
-        {
             try
             {
-                _projections[i].Fold(_bag, strategyEvent);
+                // All writers and completion use this lock; the reader can only free capacity.
+                if (_persistChannel.Reader.Count >= _queueCapacity)
+                {
+                    throw new InvalidOperationException($"Call-state persistence queue is full for call '{_callId}'.");
+                }
+
+                ApplyToProjections(_bag, strategyEvent);
+                if (!_persistChannel.Writer.TryWrite(new PersistenceWork(strategyEvent)))
+                {
+                    throw new InvalidOperationException("Call-state persistence is no longer accepting events.");
+                }
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Projection {SliceId} failed folding {EventType} on call {CallId}",
-                    _projections[i].SliceId, strategyEvent.GetType().Name, _callId);
+                Fail(ex);
+                throw;
             }
         }
     }
 
-    /// <summary>Force a snapshot flush (e.g. on call end). No-op until <see cref="HydrateAsync"/> has run.</summary>
-    public Task FlushAsync(CancellationToken cancellationToken = default)
-        => _persistLoop is null ? Task.CompletedTask : FlushCoreAsync(cancellationToken);
+    private bool ApplyToProjections(CallStateBag bag, StrategyEvent strategyEvent)
+    {
+        var changed = false;
+        foreach (var projection in _projections)
+        {
+            var previous = bag.GetRaw(projection.SliceId);
+            projection.Fold(bag, strategyEvent);
+            changed |= !ReferenceEquals(previous, bag.GetRaw(projection.SliceId));
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Persist all events admitted before this ordered flush barrier. No-op before hydration.
+    /// Waits asynchronously for queue capacity; caller cancellation never blocks the persistence reader.
+    /// </summary>
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_foldLock)
+            {
+                ThrowIfUnavailable();
+                if (_hydrateTask is null)
+                {
+                    return;
+                }
+
+                if (_persistLoop is null)
+                {
+                    throw new InvalidOperationException("Call state hydration must finish before flushing.");
+                }
+
+                if (_persistChannel.Writer.TryWrite(new PersistenceWork(null, completion)))
+                {
+                    break;
+                }
+            }
+
+            if (!await _persistChannel.Writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false))
+            {
+                lock (_foldLock)
+                {
+                    ThrowIfUnavailable();
+                }
+                throw new InvalidOperationException("Call-state persistence has stopped.");
+            }
+        }
+
+        var result = await Task.WhenAny(completion.Task, _completion.Task).WaitAsync(cancellationToken).ConfigureAwait(false);
+        await result.ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public string RenderAsPrompt()
@@ -212,146 +312,205 @@ public sealed class CallStateProjector : IPromptStateRenderer, IAsyncDisposable
                 sb.AppendLine(rendered);
             }
         }
-
         return sb.ToString();
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        _persistChannel.Writer.TryComplete();
-
-        if (_persistLoop is not null)
+        lock (_foldLock)
         {
-            try { await _persistLoop.ConfigureAwait(false); }
-            catch { /* loop already logged */ }
-        }
+            if (_disposeTask is not null)
+            {
+                return new ValueTask(_disposeTask);
+            }
 
-        // Final best-effort flush with a fresh token in case shutdown cancelled the loop mid-batch.
-        try
-        {
-            await FlushCoreAsync(CancellationToken.None).ConfigureAwait(false);
+            _disposing = true;
+            // Preserve immediate pre-hydration reads without silently discarding their queued events.
+            if (_hydrateTask is null && _failure is null && _persistChannel.Reader.Count > 0)
+            {
+                _hydrateTask = HydrateCoreAsync(CancellationToken.None);
+            }
+            return new ValueTask(_disposeTask = DisposeCoreAsync());
         }
-        catch (Exception ex)
-        {
-            _logger?.LogDebug(ex, "Final call-state flush failed for call {CallId}", _callId);
-        }
-
-        await _cts.CancelAsync().ConfigureAwait(false);
-        _cts.Dispose();
-        _flushGate.Dispose();
     }
 
-    // ── Background persistence (kept off the fold hot path) ─────────────────────────
-
-    /// <summary>
-    /// Drains folded events on a single reader: appends each to the optional <see cref="ICallEventLog"/>,
-    /// then writes a debounced snapshot to the <see cref="ICallStateStore"/> after
-    /// <see cref="CallStateOptions.SnapshotEveryNEvents"/> events or when the batch drains.
-    /// </summary>
-    private async Task RunPersistLoopAsync()
+    private async Task DisposeCoreAsync()
     {
-        var reader = _persistChannel.Reader;
+        _cts.CancelAfter(_shutdownTimeout);
         try
         {
-            while (await reader.WaitToReadAsync(_cts.Token).ConfigureAwait(false))
+            if (_hydrateTask is not null)
             {
-                while (reader.TryRead(out var strategyEvent))
-                {
-                    if (_eventLog is not null)
-                    {
-                        try
-                        {
-                            // Advance the replay watermark only for events that were durably appended, so a
-                            // swallowed append never moves it past an event that is missing from the log.
-                            var sequence = await _eventLog.AppendAsync(_callId, strategyEvent, _cts.Token).ConfigureAwait(false);
-                            Volatile.Write(ref _lastSequence, sequence);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.LogWarning(ex, "Event log append failed for call {CallId}", _callId);
-                        }
-                    }
+                await _hydrateTask.WaitAsync(_cts.Token).ConfigureAwait(false);
+            }
 
-                    _dirty = true;
-                    if (++_sinceLastSnapshot >= _options.SnapshotEveryNEvents)
-                    {
-                        await FlushCoreAsync(_cts.Token).ConfigureAwait(false);
-                    }
-                }
+            lock (_foldLock)
+            {
+                _persistChannel.Writer.TryComplete();
+            }
 
-                // Batch drained — flush any pending changes so a quiet call still persists promptly.
-                if (_dirty)
+            if (_persistLoop is not null)
+            {
+                await _persistLoop.WaitAsync(_cts.Token).ConfigureAwait(false);
+            }
+
+            lock (_foldLock)
+            {
+                ThrowIfFailed();
+            }
+            _completion.TrySetResult();
+        }
+        catch (OperationCanceledException ex) when (_cts.IsCancellationRequested)
+        {
+            var timeout = new TimeoutException($"Call-state persistence did not drain within {_shutdownTimeout}.", ex);
+            Fail(timeout);
+            throw timeout;
+        }
+        finally
+        {
+            lock (_foldLock)
+            {
+                _persistChannel.Writer.TryComplete(_failure);
+            }
+
+            var pending = _persistLoop ?? _hydrateTask;
+            if (pending is null || pending.IsCompleted)
+            {
+                _cts.Dispose();
+            }
+            else
+            {
+                // An uncooperative store must not make disposal hang or race token-source disposal.
+                _ = pending.ContinueWith(task =>
                 {
-                    await FlushCoreAsync(_cts.Token).ConfigureAwait(false);
-                }
+                    _ = task.Exception;
+                    _cts.Dispose();
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
         }
-        catch (OperationCanceledException) { /* shutdown */ }
+    }
+
+    private async Task RunPersistLoopAsync()
+    {
+        TaskCompletionSource? activeFlush = null;
+        try
+        {
+            var reader = _persistChannel.Reader;
+            while (await reader.WaitToReadAsync(_cts.Token).ConfigureAwait(false))
+            {
+                while (reader.TryRead(out var work))
+                {
+                    _cts.Token.ThrowIfCancellationRequested();
+                    activeFlush = work.Flush;
+                    if (work.Event is { } strategyEvent)
+                    {
+                        var sequence = _lastSequence;
+                        if (_eventLog is not null)
+                        {
+                            sequence = await _eventLog.AppendAsync(_callId, strategyEvent, _cts.Token).ConfigureAwait(false);
+                            if (sequence <= _lastSequence)
+                            {
+                                throw new InvalidOperationException("Call event log append must advance its sequence.");
+                            }
+                        }
+
+                        _cts.Token.ThrowIfCancellationRequested();
+                        var changed = ApplyToProjections(_persistenceBag, strategyEvent);
+                        _lastSequence = sequence;
+                        _dirty |= changed || _eventLog is not null;
+                        if (_dirty && ++_sinceLastSnapshot >= _snapshotEveryNEvents)
+                        {
+                            await PersistSnapshotAsync(_cts.Token).ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        await PersistSnapshotAsync(_cts.Token).ConfigureAwait(false);
+                        activeFlush!.TrySetResult();
+                        activeFlush = null;
+                    }
+                }
+
+                await PersistSnapshotAsync(_cts.Token).ConfigureAwait(false);
+            }
+
+            await PersistSnapshotAsync(_cts.Token).ConfigureAwait(false);
+            _completion.TrySetResult();
+        }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Call-state persister loop terminated for call {CallId}", _callId);
+            if (ex is OperationCanceledException && _cts.IsCancellationRequested)
+            {
+                ex = new TimeoutException($"Call-state persistence did not drain within {_shutdownTimeout}.", ex);
+            }
+            Fail(ex);
+            activeFlush?.TrySetException(ex);
+            while (_persistChannel.Reader.TryRead(out var work))
+            {
+                work.Flush?.TrySetException(ex);
+            }
+            ExceptionDispatchInfo.Throw(ex);
         }
     }
 
-    /// <summary>Serialize all slices and persist a snapshot. Safe to call concurrently; serialized by a gate.</summary>
-    private async Task FlushCoreAsync(CancellationToken cancellationToken = default)
+    private async Task PersistSnapshotAsync(CancellationToken cancellationToken)
     {
         if (!_dirty)
         {
             return;
         }
 
-        await _flushGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        var slices = new Dictionary<string, string>(_projections.Length, StringComparer.Ordinal);
+        foreach (var projection in _projections)
         {
-            if (!_dirty)
+            var state = projection.ReadBoxed(_persistenceBag);
+            if (!_serializedSlices.TryGetValue(projection.SliceId, out var cached) || !ReferenceEquals(cached.State, state))
+            {
+                cached = (state, projection.Serialize(_persistenceBag));
+                _serializedSlices[projection.SliceId] = cached;
+            }
+            slices[projection.SliceId] = cached.Json;
+        }
+
+        var saved = await _store.SaveAsync(new CallStateSnapshot
+        {
+            CallId = _callId,
+            Version = _version,
+            EventSequence = _lastSequence,
+            Slices = slices,
+        }, cancellationToken).ConfigureAwait(false);
+        _version = saved.Version;
+        _sinceLastSnapshot = 0;
+        _dirty = false;
+    }
+
+    private void ThrowIfUnavailable()
+    {
+        ThrowIfFailed();
+        ObjectDisposedException.ThrowIf(_disposing, this);
+    }
+
+    private void ThrowIfFailed()
+    {
+        if (_failure is not null)
+        {
+            ExceptionDispatchInfo.Throw(_failure);
+        }
+    }
+
+    private void Fail(Exception error)
+    {
+        lock (_foldLock)
+        {
+            if (_failure is not null)
             {
                 return;
             }
 
-            var slices = new Dictionary<string, string>(_projections.Length, StringComparer.Ordinal);
-            foreach (var projection in _projections)
-            {
-                slices[projection.SliceId] = projection.Serialize(_bag);
-            }
-
-            var snapshot = new CallStateSnapshot
-            {
-                CallId = _callId,
-                Version = _version,
-                EventSequence = Volatile.Read(ref _lastSequence),
-                Slices = slices,
-            };
-
-            try
-            {
-                var saved = await _store.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
-                _version = saved.Version;
-                _sinceLastSnapshot = 0;
-                _dirty = false;
-            }
-            catch (CallStateConcurrencyException ex)
-            {
-                _logger?.LogWarning(ex, "Concurrency conflict persisting call {CallId}; reloading version", _callId);
-                var current = await _store.LoadAsync(_callId, cancellationToken).ConfigureAwait(false);
-                if (current is not null)
-                {
-                    // Reload only the concurrency token. This single writer stays authoritative for the
-                    // replay watermark (_lastSequence), which is ahead of the reloaded snapshot's value.
-                    // _dirty stays set (and _sinceLastSnapshot unreset), so this same slice state is
-                    // re-serialized and re-saved on the next drain with the corrected version — the
-                    // just-computed snapshot is retried, not lost.
-                    _version = current.Version;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Snapshot persist failed for call {CallId}", _callId);
-            }
-        }
-        finally
-        {
-            _flushGate.Release();
+            _failure = error;
+            _persistChannel.Writer.TryComplete(error);
+            _completion.TrySetException(error);
+            _logger.LogError(error, "Call-state persistence failed for call {CallId}", _callId);
         }
     }
 }

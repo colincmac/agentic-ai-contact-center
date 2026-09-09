@@ -167,6 +167,7 @@ public sealed class AcsCallAutomationEdge : ICallEdge, ICallControl
         {
             _telemetry.DirectiveDispatchFailed(EdgeId, directiveKind, ex);
             _logger.LogWarning(ex, "Verb ACS edge {EdgeId} failed to dispatch {DirectiveKind}", EdgeId, directiveKind);
+            throw;
         }
     }
 
@@ -184,7 +185,7 @@ public sealed class AcsCallAutomationEdge : ICallEdge, ICallControl
             {
                 if (TryMapTone(tone, out var digit))
                 {
-                    _inboundDtmf.Writer.TryWrite(new DtmfTone(digit, at));
+                    _inboundDtmf.Writer.TryWrite(new DtmfTone(digit, at, evt.OperationContext));
                     _telemetry.InboundDtmfTone(EdgeId);
                 }
             }
@@ -200,16 +201,26 @@ public sealed class AcsCallAutomationEdge : ICallEdge, ICallControl
     {
         _inboundSignals.Writer.TryWrite(new SessionSignal
         {
-            Kind = SessionSignalKind.Custom,
+            Kind = SessionSignalKind.RecognizeFailed,
+            OperationContext = evt.OperationContext,
             Value = $"recognize-failed:{evt.ReasonCode}"
         });
     }
 
     /// <summary>Hook for ACS PlayCompleted callbacks. Drops the event today; reserved for future correlation.</summary>
-    public void OnPlayCompleted(PlayCompleted evt) => _logger.LogDebug("Play completed for {EdgeId} ({Context})", EdgeId, evt.OperationContext);
+    public void OnPlayCompleted(PlayCompleted evt) => _inboundSignals.Writer.TryWrite(new SessionSignal
+    {
+        Kind = SessionSignalKind.PlayCompleted,
+        OperationContext = evt.OperationContext,
+    });
 
     /// <summary>Hook for ACS PlayFailed callbacks. Logged as a warning; no signal raised by default.</summary>
-    public void OnPlayFailed(PlayFailed evt) => _logger.LogWarning("Play failed for {EdgeId}: {Reason}", EdgeId, evt.ReasonCode);
+    public void OnPlayFailed(PlayFailed evt) => _inboundSignals.Writer.TryWrite(new SessionSignal
+    {
+        Kind = SessionSignalKind.PlayFailed,
+        OperationContext = evt.OperationContext,
+        Value = evt.ReasonCode.ToString(),
+    });
 
     /// <summary>Hook for ACS CallDisconnected callbacks. Fires <see cref="Disconnected"/>.</summary>
     public void OnCallDisconnected(EdgeDisconnectedReason reason = EdgeDisconnectedReason.CallerHangup)

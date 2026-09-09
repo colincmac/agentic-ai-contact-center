@@ -21,5 +21,8 @@ public enum SessionSignalKind
     StopAudio,
 
     /// <summary>Custom application-defined signal.</summary>
-    Custom
+    Custom,
+    PlayCompleted,
+    PlayFailed,
+    RecognizeFailed,
 }

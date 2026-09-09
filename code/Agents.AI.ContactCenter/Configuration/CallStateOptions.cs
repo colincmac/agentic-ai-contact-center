@@ -34,6 +34,20 @@ public sealed class CallStateOptions
     /// </summary>
     public int SnapshotEveryNEvents { get; set; } = 25;
 
+    /// <summary>
+    /// Maximum queued persistence events/flush barriers per call (one additional item may be in flight).
+    /// The synchronous emit path never waits for storage: overflow rejects the event and faults the
+    /// projector rather than dropping state. Size this for the expected burst and backend latency.
+    /// </summary>
+    public int PersistenceQueueCapacity { get; set; } = 1024;
+    public int ObserverQueueCapacity { get; set; } = 256;
+
+    /// <summary>
+    /// Maximum time disposal waits for hydration and queued persistence to drain. On expiry the
+    /// backend token is cancelled and disposal reports failure, even if the backend ignores cancellation.
+    /// </summary>
+    public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Logical name of the Cosmos database when <see cref="Backend"/> is <see cref="CallStateBackend.Cosmos"/>.</summary>
     public string CosmosDatabaseName { get; set; } = "ContactCenter";
 

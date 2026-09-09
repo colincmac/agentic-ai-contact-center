@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
 using System.Text;
 using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow;
@@ -16,6 +15,8 @@ public sealed record IvrSnapshot
 {
     /// <summary>The empty starting point for every call.</summary>
     public static readonly IvrSnapshot Empty = new();
+    public string? WorkflowId { get; init; }
+    public int? WorkflowVersion { get; init; }
 
     /// <summary>Id of the currently executing stage, or <see langword="null"/> before the first step.</summary>
     public string? CurrentStepId { get; init; }
@@ -33,7 +34,7 @@ public sealed record IvrSnapshot
 /// <summary>
 /// Folds workflow-navigation and tool events into an <see cref="IvrSnapshot"/>:
 /// <see cref="StrategyEvent.WorkflowStepEntered"/> advances the step pointer and records completion,
-/// and <see cref="StrategyEvent.FunctionCalled"/> captures tool arguments as collected slots.
+/// and <see cref="StrategyEvent.WorkflowDataRecorded"/> records explicitly validated slots.
 /// </summary>
 public sealed class IvrStateProjection : CallStateProjection<IvrSnapshot>
 {
@@ -44,8 +45,9 @@ public sealed class IvrStateProjection : CallStateProjection<IvrSnapshot>
 
     protected override IvrSnapshot Apply(IvrSnapshot current, StrategyEvent strategyEvent) => strategyEvent switch
     {
+        StrategyEvent.WorkflowSelected e => current with { WorkflowId = e.WorkflowId, WorkflowVersion = e.Version },
         StrategyEvent.WorkflowStepEntered e => EnterStep(current, e.StepId),
-        StrategyEvent.FunctionCalled e => CaptureSlots(current, e.Arguments),
+        // Only explicitly validated data belongs in workflow state, never arbitrary tool arguments.
         StrategyEvent.WorkflowDataRecorded e => RecordData(current, e.Values),
         StrategyEvent.EscalationRequested => current with { Status = IvrWorkflowStatus.TransferRequested },
         StrategyEvent.WorkflowCompleted e => current with { Status = e.Status },
@@ -68,28 +70,6 @@ public sealed class IvrStateProjection : CallStateProjection<IvrSnapshot>
             CompletedSteps = completed,
             Status = IvrWorkflowStatus.Running,
         };
-    }
-
-    private static IvrSnapshot CaptureSlots(IvrSnapshot current, IReadOnlyDictionary<string, object?> arguments)
-    {
-        if (arguments.Count == 0)
-        {
-            return current;
-        }
-
-        var builder = current.Slots.ToBuilder();
-        foreach (var (key, value) in arguments)
-        {
-            builder[key] = value switch
-            {
-                null => null,
-                string s => s,
-                IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-                _ => value.ToString(),
-            };
-        }
-
-        return current with { Slots = builder.ToImmutable() };
     }
 
     private static IvrSnapshot RecordData(IvrSnapshot current, IReadOnlyDictionary<string, string?> values)

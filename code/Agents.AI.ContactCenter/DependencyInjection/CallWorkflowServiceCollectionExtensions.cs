@@ -8,6 +8,12 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Authorization;
+using Agents.AI.ContactCenter.Authorization;
+using Agents.AI.ContactCenter.Authentication;
+using Agents.AI.ContactCenter.Configuration;
+using Microsoft.Extensions.Options;
+using Agents.AI.ContactCenter.IvrWorkflow.Execution;
 
 namespace Agents.AI.ContactCenter.DependencyInjection;
 
@@ -34,6 +40,13 @@ public static class CallWorkflowServiceCollectionExtensions
         services.AddNamedEdgePredicateProvider();
         services.AddIvrToolRegistry();
         services.AddOptions<CallWorkflowOptions>();
+        services.AddAuthorizationCore();
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IAuthorizationHandler, WorkflowActionAuthorizationHandler>());
+        services.TryAddScoped<ICallerElevationDispatcher, CallerElevationDispatcher>();
+        services.TryAddScoped<CallActionDispatcher>();
+        services.AddOptions<CallIngressOptions>().ValidateOnStart();
+        services.TryAddSingleton<CallIngressRouter>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<CallIngressOptions>, CallIngressOptionsValidator>());
 
         services.TryAddSingleton<WorkflowGraphCompiler>();
         services.TryAddScoped<WorkflowRuntimeBinder>();

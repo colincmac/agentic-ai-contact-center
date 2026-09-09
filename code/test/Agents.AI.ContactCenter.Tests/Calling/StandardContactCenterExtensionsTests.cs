@@ -13,6 +13,8 @@ using Microsoft.Extensions.Hosting;
 using StackExchange.Redis;
 using Azure.Communication.CallAutomation;
 using Microsoft.Extensions.Options;
+using Agents.AI.ContactCenter.Calling.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agents.AI.ContactCenter.Tests.Calling;
 
@@ -109,7 +111,8 @@ public sealed class StandardContactCenterExtensionsTests
             .Where(static descriptor => descriptor.ServiceType == typeof(IConversationStrategy) && descriptor.IsKeyedService)
             .ToArray();
         Assert.Equal(
-            [AgentTier.RealtimeVoice, AgentTier.IntentNlu, AgentTier.DtmfOnly, AgentTier.RealtimeVoice],
+            [AgentTier.RealtimeVoice, AgentTier.IntentNlu, AgentTier.DtmfOnly,
+                AgentTier.RealtimeVoice, AgentTier.IntentNlu, AgentTier.DtmfOnly],
             strategies.Select(static descriptor => Assert.IsType<AgentTier>(descriptor.ServiceKey)).ToArray());
         Assert.Throws<InvalidOperationException>(() => contactCenter.UseStandardVoiceFallback("triage", "nlu"));
     }
@@ -124,6 +127,54 @@ public sealed class StandardContactCenterExtensionsTests
             contactCenter.UseStandardVoiceFallback("triage", "nlu"));
 
         Assert.Contains("IChatClient 'nlu'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Standard_voice_resolver_uses_only_registered_chain_and_keeps_explicit_capacities()
+    {
+        var builder = CreateBuilder(Environments.Development);
+        var contactCenter = builder.AddStandardContactCenter();
+        RegisterFallbackProviders(builder, "nlu");
+        contactCenter.UseStandardVoiceFallback("triage", "nlu");
+        builder.Services.Configure<AgentTierOptions>(options =>
+        {
+            options.FallbackOrder = Enum.GetValues<AgentTier>().ToList();
+            options.Tiers = Enum.GetValues<AgentTier>().ToDictionary(
+                tier => tier, tier => new AgentTierConfig { MaxConcurrent = tier == AgentTier.RealtimeVoice ? 0 : 1 });
+        });
+        using var host = builder.Build();
+        var configured = host.Services.GetRequiredService<IOptionsMonitor<AgentTierOptions>>();
+        Assert.Equal(
+            [AgentTier.RealtimeVoice, AgentTier.IntentNlu, AgentTier.DtmfOnly],
+            configured.CurrentValue.FallbackOrder);
+        var tracker = new InMemoryDistributedCapacityTracker();
+        var resolver = new DistributedAgentTierResolver(
+            configured,
+            new InMemoryTierCeilingProvider(Options.Create(new HyperscaleOptions())),
+            tracker,
+            NullLogger<DistributedAgentTierResolver>.Instance,
+            strategyServices: host.Services.GetRequiredService<IServiceProviderIsKeyedService>());
+
+        Assert.Equal(AgentTier.IntentNlu, await resolver.ResolveAsync(AgentTier.ChatCompletionTts));
+        Assert.Equal(AgentTier.DtmfOnly, await resolver.ResolveAsync());
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.ChatCompletionTts));
+        Assert.Equal(0, await tracker.GetCountAsync(AgentTier.SmallLanguageModel));
+    }
+
+    [Fact]
+    public void Standard_voice_fallback_does_not_supply_unvalidated_capacity_defaults()
+    {
+        var builder = CreateBuilder(Environments.Development);
+        var contactCenter = builder.AddStandardContactCenter();
+        RegisterFallbackProviders(builder, "nlu");
+        contactCenter.UseStandardVoiceFallback("triage", "nlu");
+        using var host = builder.Build();
+
+        var options = host.Services.GetRequiredService<IOptions<AgentTierOptions>>().Value;
+
+        Assert.All(options.Tiers.Values, config => Assert.Null(config.MaxConcurrent));
+        Assert.DoesNotContain(AgentTier.ChatCompletionTts, options.FallbackOrder);
+        Assert.DoesNotContain(AgentTier.SmallLanguageModel, options.FallbackOrder);
     }
 
     private static HostApplicationBuilder CreateBuilder(string environmentName)

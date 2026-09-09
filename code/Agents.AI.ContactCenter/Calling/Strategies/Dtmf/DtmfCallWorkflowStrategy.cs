@@ -1,4 +1,3 @@
-using System.Text;
 using System.Threading.Channels;
 using Agents.AI.ContactCenter.Authentication;
 using Agents.AI.ContactCenter.Configuration;
@@ -48,11 +47,10 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
     private Task? _dtmfPump;
     private bool _suspended;
     private string _callId = string.Empty;
+    private EdgeCapabilities? _edgeCapabilities;
     private int _disposed;
 
-    // Inline-auth collect mode: non-null while the executor is waiting on a credential.
-    private AuthStepRender? _activeAuth;
-    private readonly StringBuilder _digitBuffer = new();
+    private readonly CredentialCapture _capture;
 
     public DtmfCallWorkflowStrategy(
         CallWorkflowSession session,
@@ -61,6 +59,7 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        _capture = session.CredentialCapture;
         _synthesizer = synthesizer;
         _logger = loggerFactory?.CreateLogger<DtmfCallWorkflowStrategy>()
             ?? NullLogger<DtmfCallWorkflowStrategy>.Instance;
@@ -86,6 +85,7 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
         if (_dtmfPump is not null) { return; }
 
         _callId = context.CallId;
+        _edgeCapabilities = context.EdgeCapabilities;
         _projector = context.StateProjector;
 
         // Run the call-start authenticator chain (ANI lookup, etc.) BEFORE entering
@@ -152,9 +152,8 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
 
     private async ValueTask RenderStageAsync(CompiledStage stage, CancellationToken ct)
     {
-        // Leaving auth collect mode (plan satisfied / business stage).
-        _activeAuth = null;
-        _digitBuffer.Clear();
+        if (!await CallWorkflowEligibility.CheckAsync(_session.Services, Tier, stage, _edgeCapabilities, _emit, ct).ConfigureAwait(false)) { return; }
+        _capture.End();
 
         await _emit.WriteAsync(
             new StrategyEvent.WorkflowStepEntered(stage.Id, DateTimeOffset.UtcNow),
@@ -183,13 +182,9 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
     /// </summary>
     private async ValueTask RenderAuthAsync(AuthStepRender render, CancellationToken ct)
     {
-        _activeAuth = render;
-        _digitBuffer.Clear();
-
-        // DTMF can't present a spoken choice cleanly; satisfy an anyOf with its first option.
-        var request = render.Requests[0];
-
-        var prompt = render.Challenge?.Prompt ?? request.SsmlPrompt;
+        if (!await CallWorkflowEligibility.CheckAsync(_session.Services, Tier, render.Stage, _edgeCapabilities, _emit, ct).ConfigureAwait(false)) { return; }
+        if (_synthesizer is null) { throw new CredentialCaptureUnavailableException("No prompt synthesizer is configured."); }
+        var prompt = _capture.Begin(render);
         if (!string.IsNullOrWhiteSpace(prompt) && _synthesizer is not null)
         {
             await SynthesizeAsync(prompt, ct).ConfigureAwait(false);
@@ -219,22 +214,27 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "TTS synthesis failed in DTMF strategy for call {CallId}", _callId);
+            throw;
         }
     }
 
     private async Task HandleDtmfAsync(DtmfTone tone, CancellationToken ct)
     {
         var current = _executor.CurrentStage;
+        if (_executor.IsAuthenticating)
+        {
+            if (!_capture.IsActive) { return; }
+            var capture = _capture.Accept(tone.Digit);
+            if (capture.Prompt is { } prompt) { await SynthesizeAsync(prompt, ct).ConfigureAwait(false); }
+            if (capture.Input is { } input)
+            {
+                await _executor.SubmitCredentialAsync(capture.AuthenticatorName!, input, ct).ConfigureAwait(false);
+            }
+            return;
+        }
         await _emit.WriteAsync(
             new StrategyEvent.DtmfRecognized(tone.Digit.ToString(), current?.Id, DateTimeOffset.UtcNow),
             ct).ConfigureAwait(false);
-
-        // Inline authentication takes priority: buffer digits until the credential is complete.
-        if (_activeAuth is { } auth)
-        {
-            await HandleAuthDigitAsync(auth, tone, ct).ConfigureAwait(false);
-            return;
-        }
 
         if (current?.Blueprint.Channels.Scripted is not { MenuOptions: { Count: > 0 } menu })
         {
@@ -259,40 +259,6 @@ public sealed class DtmfCallWorkflowStrategy : IConversationStrategy
         }
 
         await _executor.AdvanceAlongAsync(edge, ct).ConfigureAwait(false);
-    }
-
-    private async Task HandleAuthDigitAsync(AuthStepRender auth, DtmfTone tone, CancellationToken ct)
-    {
-        var request = auth.Requests[0];
-        var max = request.MaxLength ?? 32;
-        var min = request.MinLength ?? 1;
-
-        if (tone.Digit == '#')
-        {
-            if (_digitBuffer.Length >= min)
-            {
-                await SubmitBufferedDigitsAsync(request.AuthenticatorName, ct).ConfigureAwait(false);
-            }
-            return;
-        }
-        if (tone.Digit == '*')
-        {
-            _digitBuffer.Clear();
-            return;
-        }
-
-        _digitBuffer.Append(tone.Digit);
-        if (_digitBuffer.Length >= max)
-        {
-            await SubmitBufferedDigitsAsync(request.AuthenticatorName, ct).ConfigureAwait(false);
-        }
-    }
-
-    private async Task SubmitBufferedDigitsAsync(string authenticatorName, CancellationToken ct)
-    {
-        var value = _digitBuffer.ToString();
-        _digitBuffer.Clear();
-        await _executor.SubmitCredentialAsync(authenticatorName, new CredentialInput(value), ct).ConfigureAwait(false);
     }
 
     internal static bool LooksLikeSsml(string? text)
