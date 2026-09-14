@@ -1,5 +1,17 @@
 # Estimates of Monitoring Costs (WIP)
 
+## HA/DR cost model
+
+See [HA/DR cost controls](high-availability.md#cost-controls-and-the-retention-hypothesis)
+for selective duplication, native replication, per-table retention, metric
+cardinality, and a symbolic volume model. Shortening a secondary independent
+workspace's retention does not remove its ingestion charges; native workspace
+replication does not expose a separately configurable short-retention shadow.
+
+The figures below are vendor examples, not measured solution usage. Validate the
+actual export type, table-plan eligibility, correlation/query requirements, and
+current pricing before applying them to a recovery design.
+
 ## Appendix
 ### Dynamics
 
