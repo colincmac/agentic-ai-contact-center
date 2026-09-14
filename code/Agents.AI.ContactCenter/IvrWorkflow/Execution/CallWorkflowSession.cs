@@ -29,7 +29,11 @@ public sealed class CallWorkflowSession
 
         Workflow = workflow;
         Services = serviceProvider;
-        Authenticators = (authenticators ?? serviceProvider.GetServices<ICallerAuthenticator>().OfType<ICredentialAuthenticator>()).ToList();
+        var configured = authenticators?.ToList();
+        // DI supplies an empty IEnumerable<T> even when no T registration exists.
+        Authenticators = configured is { Count: > 0 }
+            ? configured
+            : serviceProvider.GetServices<ICallerAuthenticator>().OfType<ICredentialAuthenticator>().ToList();
         CallerElevationDispatcher = callerElevationDispatcher;
     }
     public ICallerElevationDispatcher CallerElevationDispatcher { get; }

@@ -1,0 +1,141 @@
+schemaVersion: 1
+id: demo-bank
+version: 1
+description: Demo accounts only. Real calls and SMS require explicit live configuration.
+basePrompt: |
+  You are the demo banking contact center. These are simulated accounts, not a real bank.
+  Be concise. Follow the active stage and use advance only for its allowed transitions.
+  Never invent balances or claim a real card was changed. Never collect an OTP by voice or tool.
+  Trusted keypad capture handles verification. Never ask for full card numbers or PINs.
+  Outside trusted verification, callers may request an operator. Verification failure or silence routes to an operator.
+  Never accept operator phone numbers from the caller.
+initialStage: welcome
+stages:
+  - id: welcome
+    goal: Explain the demonstration and offer balance, debit-card activation, or an operator.
+    realtime:
+      instructions:
+        - Greet the caller and say this uses demo accounts.
+        - Ask whether they want their balance, to activate their debit card, or to speak to an operator.
+        - Choose the matching advance transition. Verification is performed by the runtime, not by you.
+    scripted:
+      ssml: "Welcome to the demo bank. Press 1 for your balance, 2 to activate your demo debit card, 0 for an operator, or 9 to finish."
+      menu:
+        '1': { transition: balance }
+        '2': { transition: card }
+        '0': { transition: operator }
+        '9': { transition: finish }
+    transitions:
+      - { to: balance-action, label: balance }
+      - { to: confirm-card, label: card }
+      - { to: operator-action, label: operator }
+      - { to: finish-action, label: finish }
+
+  - id: balance-action
+    authenticate: [{ use: SmsOtp }]
+    onAuthenticationFailure: operator-action
+    maxAuthenticationAttempts: 3
+    authenticationMaxAgeSeconds: 300
+    action: read-balance
+    onActionSuccess: balance-result
+    onActionFailure: service-error
+
+  - id: balance-result
+    goal: Read the exact demo.balanceText from collected state.
+    realtime:
+      instructions:
+        - Read demo.balanceText exactly; do not calculate or invent another amount.
+        - Ask whether the caller wants another service, an operator, or to finish.
+    scripted:
+      ssml: "{{demo.balanceText}} Press 1 for the menu, 0 for an operator, or 9 to finish."
+      menu:
+        '1': { transition: menu }
+        '0': { transition: operator }
+        '9': { transition: finish }
+    transitions:
+      - { to: welcome, label: menu }
+      - { to: operator-action, label: operator }
+      - { to: finish-action, label: finish }
+
+  - id: confirm-card
+    authenticate: [{ use: SmsOtp }]
+    onAuthenticationFailure: operator-action
+    maxAuthenticationAttempts: 3
+    authenticationMaxAgeSeconds: 300
+    goal: Ask for explicit keypad confirmation to activate the caller's configured demo debit card.
+    realtime:
+      instructions:
+        - Ask the caller to press 1 on the phone keypad to activate their demo debit card.
+        - Spoken consent is not sufficient. Do not attempt the activate transition yourself.
+        - Offer menu or operator if the caller does not want to activate.
+    scripted:
+      ssml: "To confirm activation of your demo debit card, press 1. Press 2 to cancel or 0 for an operator. No real card will be changed."
+      menu:
+        '1': { transition: activate }
+        '2': { transition: menu }
+        '0': { transition: operator }
+    transitions:
+      - to: activate-action
+        label: activate
+        requires: [{ type: predicate, id: card-confirmed }]
+      - { to: welcome, label: menu }
+      - { to: operator-action, label: operator }
+
+  - id: activate-action
+    authenticate: [{ use: SmsOtp }]
+    onAuthenticationFailure: operator-action
+    authenticationMaxAgeSeconds: 300
+    action: activate-card
+    onActionSuccess: card-result
+    onActionFailure: service-error
+
+  - id: card-result
+    goal: Read the exact demo.cardText from collected state.
+    realtime:
+      instructions:
+        - Read demo.cardText exactly. Say this changed only the demo account.
+        - Offer the menu, operator, or finish.
+    scripted:
+      ssml: "{{demo.cardText}} Press 1 for the menu, 0 for an operator, or 9 to finish."
+      menu:
+        '1': { transition: menu }
+        '0': { transition: operator }
+        '9': { transition: finish }
+    transitions:
+      - { to: welcome, label: menu }
+      - { to: operator-action, label: operator }
+      - { to: finish-action, label: finish }
+
+  - id: service-error
+    realtime:
+      instructions: ["Explain the demo account operation could not be completed. Offer an operator or finish."]
+    scripted:
+      ssml: "The demo operation could not be completed. Press 0 for an operator or 9 to finish."
+      menu:
+        '0': { transition: operator }
+        '9': { transition: finish }
+    transitions:
+      - { to: operator-action, label: operator }
+      - { to: finish-action, label: finish }
+
+  - id: operator-action
+    action: transfer-operator
+    onActionSuccess: operator-wait
+    onActionFailure: finish-action
+
+  - id: operator-wait
+    terminal: true
+    terminalOutcome: escalated
+    realtime:
+      instructions: ["The host is handling transfer. Do not issue other tools or speak over the transfer."]
+
+  - id: finish-action
+    action: finish-call
+    onActionSuccess: goodbye
+    onActionFailure: goodbye
+
+  - id: goodbye
+    terminal: true
+    terminalOutcome: success
+    realtime:
+      instructions: ["The host is playing goodbye and will hang up after its playback callback. Remain silent."]

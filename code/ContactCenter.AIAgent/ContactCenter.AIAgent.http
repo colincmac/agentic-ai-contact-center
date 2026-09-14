@@ -1,0 +1,79 @@
+@baseUrl = http://localhost:5071
+@eventGridToken = {{$processEnv EVENTGRID_DEMO_TOKEN}}
+@acsToken = {{$processEnv ACS_DEMO_TOKEN}}
+@routeId = replace-with-the-route-id-issued-for-your-test-call
+
+### Safe in configuration-preview mode; contains no customer or credential data
+GET {{baseUrl}}/demo
+Accept: application/json
+
+### Development OpenAPI
+GET {{baseUrl}}/openapi/v1.json
+
+### Harmless Event Grid subscription validation (live configuration must be enabled)
+POST {{baseUrl}}/events/incoming-call
+Content-Type: application/json
+
+[
+  {
+    "id": "validation-example",
+    "eventType": "Microsoft.EventGrid.SubscriptionValidationEvent",
+    "subject": "demo",
+    "eventTime": "{{$datetime iso8601}}",
+    "dataVersion": "1.0",
+    "data": { "validationCode": "echo-this-code" }
+  }
+]
+
+### Incoming-call shape. Normally delivered by Event Grid, not called manually.
+### WARNING: valid live credentials/context can answer a real billable call.
+### Keep tokens in environment variables; never commit them to this file.
+POST {{baseUrl}}/events/incoming-call
+Authorization: Bearer {{eventGridToken}}
+Content-Type: application/json
+
+[
+  {
+    "id": "incoming-example",
+    "eventType": "Microsoft.Communication.IncomingCall",
+    "eventTime": "{{$datetime iso8601}}",
+    "subject": "demo",
+    "dataVersion": "1.0",
+    "data": {
+      "incomingCallContext": "replace-with-fresh-ACS-context",
+      "serverCallId": "replace-with-ACS-server-call-id",
+      "from": { "kind": "phoneNumber", "rawId": "4:+15555550101", "phoneNumber": { "value": "+15555550101" } },
+      "to": { "kind": "phoneNumber", "rawId": "4:+15555550102", "phoneNumber": { "value": "+15555550102" } }
+    }
+  }
+]
+
+### Lifecycle callback shape; normally signed and delivered by ACS.
+POST {{baseUrl}}/automation/callbacks/{{routeId}}
+Authorization: Bearer {{acsToken}}
+Content-Type: application/json
+
+[
+  {
+    "id": "callback-example",
+    "source": "acs",
+    "specversion": "1.0",
+    "type": "Microsoft.Communication.CallConnected",
+    "time": "{{$datetime iso8601}}",
+    "data": {
+      "callConnectionId": "replace-with-ACS-connection-id",
+      "serverCallId": "replace-with-ACS-server-call-id"
+    }
+  }
+]
+
+### Expected 400 for an authenticated non-WebSocket request (401 without a valid ACS JWT).
+### ACS itself establishes the real WSS connection; REST Client does not stream call audio.
+GET {{baseUrl}}/automation/media/{{routeId}}
+Authorization: Bearer {{acsToken}}
+
+### Negative: missing Event Grid authentication must not answer a call
+POST {{baseUrl}}/events/incoming-call
+Content-Type: application/json
+
+[{"id":"unauthorized","eventType":"Microsoft.Communication.IncomingCall","eventTime":"{{$datetime iso8601}}","subject":"demo","dataVersion":"1.0","data":{}}]

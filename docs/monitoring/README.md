@@ -68,12 +68,14 @@ flowchart LR
 - **[Standard contact-center facade](../../code/Agents.AI.ContactCenter/DependencyInjection/StandardContactCenterExtensions.cs)** -
   registers correlation services, but a host must still initialize and propagate
   call context at ingress, callbacks, media connections, and transfer boundaries.
-- **[AppHost](../../code/ContactCenter.AppHost/AppHost.cs)** - currently empty
-  apart from creating and running the distributed application. It does not
-  register `CallingApi`, a contact-center service, or `AddMonitoring()`.
-  Cloud/resource composition is intentionally deferred pending SKU, region,
-  and capacity recommendations. That deferral is not a monitoring-library defect;
-  application correlation wiring and its tests are a separate concern.
+- **[Banking demo coordinator](../../code/ContactCenter.AIAgent/Services/CallCoordinator.cs)** -
+  initializes and propagates call context around ingress, media, callbacks, and
+  transfer. The host uses service defaults and the standard contact-center facade.
+  [Local host tests](../evidence/2026-09-09-banking-demo-validation.md) do not
+  validate exported telemetry or live cross-platform joins.
+- **[AppHost](../../code/ContactCenter.AppHost/AppHost.cs)** - environment-specific
+  resource composition remains separate from this demo. Existing user composition
+  work is preserved; no monitored Azure deployment is established by these tests.
 
 The rest of this folder describes the target integration. Verify it against the
 [current implementation map](../README.md#current-implementation) and

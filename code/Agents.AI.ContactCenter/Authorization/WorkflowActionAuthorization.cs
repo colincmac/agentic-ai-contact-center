@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Agents.AI.ContactCenter.Authentication;
+using Agents.AI.ContactCenter.Calling;
 using Agents.AI.ContactCenter.IvrWorkflow.Blueprint;
 using Agents.AI.ContactCenter.State;
 using Agents.AI.ContactCenter.State.Projections;
@@ -12,11 +13,16 @@ namespace Agents.AI.ContactCenter.Authorization;
 public sealed record WorkflowActionRequirement(StageBlueprint Stage, CallerVerificationLevel MinimumLevel)
     : IAuthorizationRequirement;
 
-public sealed class WorkflowActionAuthorizationHandler(CallStateProjector projector)
+public sealed class WorkflowActionAuthorizationHandler(IServiceProvider services)
     : AuthorizationHandler<WorkflowActionRequirement>
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, WorkflowActionRequirement requirement)
     {
+        // HTTP transport authorization shares this handler collection, but only a
+        // bound call scope may evaluate workflow action requirements.
+        if (services.GetService<ICallContextAccessor>() is { Current: null }) { return Task.CompletedTask; }
+        var projector = services.GetService<CallStateProjector>();
+        if (projector is null) { return Task.CompletedTask; }
         var auth = projector.Get<AuthSnapshot>();
         if (projector.Get<IvrSnapshot>().CurrentStepId == requirement.Stage.Id
             && auth.Level >= requirement.MinimumLevel

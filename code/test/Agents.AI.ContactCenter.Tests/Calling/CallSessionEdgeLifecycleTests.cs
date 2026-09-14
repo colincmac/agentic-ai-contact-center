@@ -603,11 +603,11 @@ public sealed class CallSessionEdgeLifecycleTests
                     listener.EnableMeasurementEvents(instrument);
                 }
             };
-            _listener.SetMeasurementEventCallback<double>((_, measurement, _, _) => Values.Add(measurement));
+            _listener.SetMeasurementEventCallback<double>((_, measurement, _, _) => Values.Enqueue(measurement));
             _listener.Start();
         }
 
-        public List<double> Values { get; } = [];
+        public System.Collections.Concurrent.ConcurrentQueue<double> Values { get; } = new();
 
         public void Dispose() => _listener.Dispose();
     }
