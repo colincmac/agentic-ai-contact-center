@@ -2,23 +2,33 @@
 
 Light up each telemetry source and the Azure Managed Grafana single pane. Do these once per environment. Order doesn't matter except that Grafana needs the sinks to exist first.
 
-Prerequisites: the shared **Log Analytics workspace** and **Application Insights** already exist (declared in the AppHost). Recommendation: point the IVR's Application Insights and the D365 export at the **same** Log Analytics workspace so the single-call-trace query is a single-workspace union.
+Prerequisites: verify the **Log Analytics workspace** and **Application Insights**
+destinations exist in the intended environment. The
+[platform template](../../infra/modules/platform.bicep) declares shared sinks;
+the current [AppHost](../../code/ContactCenter.AppHost/AppHost.cs) does not provision
+them. Sharing the IVR and D365 workspace simplifies queries, but is not a regional
+HA/DR design. Select targets using the
+[HA/DR research](high-availability.md) and
+[proposed ADR-0017](../adr/0017-telemetry-high-availability-and-disaster-recovery.md).
+Neither these setup steps nor the infrastructure source establish deployed
+telemetry or successful failover.
 
 ---
 
-## 1. IVR app — already wired
+## 1. IVR app — verify instrumentation and export
 
-Nothing to configure. `ServiceDefaults.ConfigureOpenTelemetry()` calls `AddCallCorrelation()`, which:
+Review [service defaults](../../code/ContactCenter.ServiceDefaults/Extensions.cs)
+and the [banking demo coordinator](../../code/ContactCenter.AIAgent/Services/CallCoordinator.cs)
+for the actual host integration. Do not assume service defaults alone register
+the contact-center correlation pipeline, select an Azure exporter, or dynamically
+reload an Application Insights destination.
 
-- registers the ambient correlation accessor + store, and
-- adds the OpenTelemetry processor that stamps the canonical ids onto every span/log.
-
-The ingress mint and per-callback re-hydration live in `CallingApi`. For **multi-pod** deployments, switch the store to Redis so ingress and later webhooks resolve the same context regardless of which pod they land on:
-
-```csharp
-// in the IVR host, after AddServiceDefaults()
-builder.Services.AddRedisCallCorrelationStore(); // requires a registered IConnectionMultiplexer
-```
+Confirm the runtime exporter and destination, generate a synthetic call, and
+verify both correlation and ingestion. For multiregion operation, validate each
+host/collector separately and retain cluster/region identity. Use the
+[Application Insights retargeting runbook](../runbooks/monitoring/application-insights-retargeting.md)
+for recovery rather than assuming an App Configuration change immediately
+reconfigures the exporter.
 
 Confirm the ids are flowing (App Insights):
 
@@ -34,7 +44,14 @@ AppTraces
 
 ## 2. ACS — diagnostic settings → Log Analytics
 
-ACS is bound to Teams Phone via Teams Phone Extensibility and lives **outside** the Aspire graph, so enable its diagnostic settings directly on the ACS resource. The log categories and resulting table names are captured in `Agents.AI.Monitoring/Azure/AcsMonitoring.cs`.
+Enable diagnostic settings directly on the ACS resource bound to Teams Phone.
+The [platform template](../../infra/modules/platform.bicep) declares ACS, but
+source presence does not establish that its diagnostic settings are deployed.
+Verify the current categories against the
+[ACS Call Automation log reference](https://learn.microsoft.com/en-us/azure/communication-services/concepts/analytics/logs/call-automation-logs).
+The examples below demonstrate one destination; select only supported categories
+and add an independently configured second setting if the HA/DR policy requires it.
+Do not export `AllMetrics` unless the metric-to-log copy is needed.
 
 ### Option A — Azure CLI
 
@@ -94,8 +111,20 @@ This exports **your** conversation lifecycle telemetry to Application Insights s
 ### Enable the export
 
 1. Ensure the environment is a **Managed environment**.
-2. Create (or reuse) an Application Insights instance — ideally the same one the IVR uses.
-3. In the **Power Platform admin center**, connect Customer Service to that Application Insights instance. There is **one** conversation-diagnostics export per environment.
+2. Verify licensing, tenant/environment administrator roles, and Azure
+   destination permissions. Prefer a dedicated environment-specific Application
+   Insights component: the [export guide](https://learn.microsoft.com/en-us/power-platform/admin/set-up-export-application-insights)
+   requires local authentication and warns against combining multiple environments
+   in one component. Do not weaken an Entra-only IVR destination implicitly.
+3. In **Power Platform admin center > Manage > Data export > App Insights**,
+   create the **Dynamics Customer Service** export for that environment and
+   destination. There is **one** conversation-diagnostics export per environment.
+   Dataverse diagnostics/performance is a separate export type.
+
+Allow up to 24 hours for initial export; the general export guide states a
+24-hour telemetry-delivery SLA, not a rapid failover guarantee. For destination
+replacement and verification, use the
+[Power Platform recovery runbook](../runbooks/monitoring/power-platform-telemetry-recovery.md).
 
 Steps: [Configure conversation diagnostics](https://learn.microsoft.com/dynamics365/customer-service/administer/configure-conversation-diagnostics).
 
@@ -117,7 +146,12 @@ To join a D365 conversation back to the IVR call, declare **context variables wh
 | `cc_e2eCallId` | the IVR `e2e_call_id` |
 | `cc_intent`, `cc_lang`, `cc_workstream` | optional routing/context hints |
 
-Names are **case-sensitive** and must match exactly. These values then appear in the conversation-diagnostics `customDimensions`, giving you `cc_contextId == context_id == e2e_call_id`.
+Names are **case-sensitive** and must match exactly. This is the proposed
+correlation contract, not proof that every transfer context variable is exported
+in every conversation-diagnostics event. Verify the fields against raw exported
+events for the selected transfer/channel scenario. Treat absent context as an
+integration gap rather than claiming `cc_contextId == context_id == e2e_call_id`
+has been demonstrated in live telemetry.
 
 ### Note on the productized dashboard
 
@@ -173,7 +207,12 @@ The original single pane (`contact-center-e2e.json`) can still be imported direc
 - `law` → the Log Analytics workspace resource id
 - `e2e` → the `e2e.call_id` you want to trace (blank for fleet views)
 
-For automated/repeatable provisioning of the Grafana instance itself — identity, Managed Prometheus integration, and the Monitoring Reader grant — use the Bicep module `Agents.AI.Monitoring/Azure/Infra/grafana.bicep` instead of the CLI steps above.
+The [platform template](../../infra/modules/platform.bicep) declares Grafana,
+its managed Prometheus integration, and relevant assignments. Inspect the
+[platform RBAC module](../../infra/modules/platform-rbac.bicep) and actual
+deployment scopes before assuming it can read every log source. Secondary
+Grafana, data-source access, and alert recovery require separate configuration;
+see [HA/DR guidance](high-availability.md).
 
 See [dashboards.md](dashboards.md) for the panels and the composed dashboards.
 
@@ -181,4 +220,8 @@ See [dashboards.md](dashboards.md) for the panels and the composed dashboards.
 
 ## 5. Local development
 
-`AppHost.AddMonitoring()` runs an OSS OpenTelemetry stack (Prometheus + OpenTelemetry Collector + Grafana) as containers **in run mode only**. In publish mode it is a no-op — the Azure Monitor sinks and Managed Grafana above take over. No action needed for local dev beyond `azd`/Aspire run.
+The current [AppHost](../../code/ContactCenter.AppHost/AppHost.cs) registers the
+application project. Use the actual local Aspire telemetry configuration to
+inspect instrumentation; do not assume an `AddMonitoring()` container stack or
+automatic Azure sink handoff exists. Local dashboard output does not validate
+Azure ingestion, independent regional sinks, or SaaS export.

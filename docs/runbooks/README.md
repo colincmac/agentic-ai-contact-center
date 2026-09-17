@@ -9,8 +9,15 @@ Operator procedures for common day-2 tasks and failures.
 | [`teams-configuration/teams-extensibility.md`](teams-configuration/teams-extensibility.md) | Teams Phone Extensibility overview and official quickstart links. |
 | [`teams-configuration/tpe-onboarding-guide.md`](teams-configuration/tpe-onboarding-guide.md) | Greenfield enterprise onboarding for a Teams resource account, Entra application, ACS, Bot Service, and Event Grid. |
 | [`teams-configuration/tpe-brownfield.md`](teams-configuration/tpe-brownfield.md) | Brownfield onboarding when the Teams resource account or ACS resources already exist. |
+| [`monitoring/high-availability.md`](monitoring/high-availability.md) | Start here for monitoring outages: identify the failed path, choose a recovery procedure, and verify data and notifications. |
+| [`monitoring/log-analytics-recovery.md`](monitoring/log-analytics-recovery.md) | Draft LAW native switchover/switchback and independent diagnostic-destination recovery. |
+| [`monitoring/aks-telemetry-recovery.md`](monitoring/aks-telemetry-recovery.md) | Draft Container Insights, managed Prometheus, and Advanced Container Networking telemetry recovery. |
+| [`monitoring/application-insights-retargeting.md`](monitoring/application-insights-retargeting.md) | Draft application/collector and APIM Application Insights destination changes, canary rollout, and rollback. |
+| [`monitoring/power-platform-telemetry-recovery.md`](monitoring/power-platform-telemetry-recovery.md) | Draft Dynamics/Power Platform export recovery, latency expectations, and manual administration boundaries. |
 
-The files under `monitoring/` are placeholders and are not operational
-coverage. Still to come: the operator playbook for
+The HA/DR runbooks above are researched drafts, not exercised production
+procedures; see [ADR-0017](../adr/0017-telemetry-high-availability-and-disaster-recovery.md).
+The other service-named files under `monitoring/` remain placeholders and do not
+provide operational coverage. Still to come: the operator playbook for
 [ADR-0008](../adr/0008-graceful-degradation-realtime-to-dtmf.md)'s degradation
 tiers, dashboard triage, region drain, and service-specific monitoring alerts.

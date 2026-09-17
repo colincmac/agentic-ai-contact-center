@@ -72,8 +72,8 @@ the historical strategy snippets as current API examples.
 | [`../scripts/teams-extensibility/`](../scripts/teams-extensibility/) | PowerShell provisioning and cleanup automation. |
 | [`architecture/aks-topology.md`](architecture/aks-topology.md) | Deployment topology and modeled sizing method. |
 
-[`../infra/main.bicep`](../infra/main.bicep) is currently a placeholder and
-must not be represented as a deployable infrastructure template.
+[`../infra/main.bicep`](../infra/main.bicep) now contains the subscription-scope
+infrastructure template. Source presence is not Azure deployment evidence.
 
 ## Observability
 
@@ -83,12 +83,21 @@ reference designs alongside the [monitoring library](../code/Agents.AI.Monitorin
 The demo composes service defaults and call-context propagation, but
 cross-platform correlation has not been validated against live traffic.
 
+The [monitoring HA/DR adoption guide](monitoring/high-availability.md) helps you
+choose between regional collection, archives, duplicate ingestion and native
+replication. It explains service-specific targets, costs and recovery actions
+under [proposed ADR-0017](adr/0017-telemetry-high-availability-and-disaster-recovery.md).
+Apply the patterns to your own requirements and validate the selected configuration.
+
 ## Operations
 
 The current operational set covers Event Grid incoming-call subscription
 behavior, timing/retry guidance, and Teams Phone Extensibility setup. Empty or
-partial monitoring runbooks are tracked as gaps and are not considered
-operational coverage. See [`runbooks/README.md`](runbooks/README.md).
+partial service-specific monitoring runbooks remain gaps. The new
+[telemetry HA/DR entry point](runbooks/monitoring/high-availability.md) links draft
+procedures for LAW/diagnostic settings, AKS/Prometheus/ACNS, Application Insights/
+APIM, and Power Platform exports. These are researched procedures, not
+production-exercised operational coverage. See [`runbooks/README.md`](runbooks/README.md).
 
 ## Evidence status
 

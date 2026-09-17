@@ -53,6 +53,7 @@ The scaling matrix in `aks-topology.md` is a **modeled** design target, not a me
 | --- | --- |
 | [`../monitoring/README.md`](../monitoring/README.md) | The observability plane, its one honest constraint (canonical-ID join, not a single distributed trace), and the index of monitoring documents. |
 | [`../monitoring/correlation-model.md`](../monitoring/correlation-model.md) | The `e2e_call_id` / `context_id` contract and the OpenTelemetry attribute keys. |
+| [`../monitoring/high-availability.md`](../monitoring/high-availability.md) | Logging/metrics HA/DR options, source-specific routing and recovery, and cost trade-offs under proposed [ADR-0017](../adr/0017-telemetry-high-availability-and-disaster-recovery.md); no measured recovery claims. |
 
 ## Decisions that shape these views
 
@@ -67,6 +68,7 @@ Statuses live in the ADR files and are authoritative there; this table is a poin
 | Identity and biometrics | [ADR-0009](../adr/0009-voice-biometrics-stub-vs-grpc.md), [ADR-0000](../adr/0000-azure-configuration-keyvault-strategy.md) |
 | Cluster topology and capacity | [ADR-0010](../adr/0010-active-active-multi-cluster-topology.md), [ADR-0012](../adr/0012-aks-node-pool-vm-sku-and-pod-density.md), [ADR-0015](../adr/0015-aks-istio-ingress-gateway-node-pool.md) |
 | Tool execution | [ADR-0013](../adr/0013-sandboxed-tool-execution-via-aca-sandboxes.md) |
+| Telemetry HA/DR | [ADR-0017](../adr/0017-telemetry-high-availability-and-disaster-recovery.md) |
 
 ## Machine-readable index
 
