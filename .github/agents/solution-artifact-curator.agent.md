@@ -46,6 +46,7 @@ documentation contract, defined by
 
 ## Working style
 
+- Keep source relationships accurate without inserting code inventories into conceptual guides. Allow restructuring when it improves adoption and readability.
 - Prefer small, additive edits (fixing a link, adding an index row) over
   large restructuring.
 - When you find inconsistency you cannot safely resolve automatically
