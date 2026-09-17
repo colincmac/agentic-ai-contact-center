@@ -18,3 +18,4 @@ description: Guidance for authoring and maintaining Architecture Decision Record
 - Link evidence that informed the decision; if none exists, say so rather
   than implying validation that did not happen.
 - Add a row to the index table in `docs/adr/README.md` for every new ADR.
+- Require an adopter-readable explanation of options and consequences; exclude implementation inventories, like code and infra-as-code, unless essential to the decision.

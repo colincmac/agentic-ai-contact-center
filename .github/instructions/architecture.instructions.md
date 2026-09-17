@@ -5,6 +5,7 @@ description: Guidance for editing solution architecture documents.
 
 # Architecture documentation instructions
 
+- Distinguish official sources for service capabilities, ADRs for design decisions, and evidence records for measured outcomes.
 - These are plain GitHub-flavored Markdown files, not MDX/Astro/Starlight.
   Do not introduce component imports or frontmatter beyond a simple
   title/metadata block.

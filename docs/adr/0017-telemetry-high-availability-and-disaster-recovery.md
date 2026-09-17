@@ -1,110 +1,132 @@
-# ADR-0017: Source-specific telemetry high availability and disaster recovery
+# ADR-0017: Regional monitoring with selective protection for critical data
 
 - **ID:** ADR-0017
 - **Status:** proposed
 - **Date:** 2026-09-14
+- **Last updated:** 2026-09-17
 
 ## Context
 
-The contact center needs observability during the same regional incidents that affect its call-processing infrastructure. Workload failover does not imply logging failover. Diagnostic settings, Container Insights, managed Prometheus, Application Insights, and Power Platform exports have different ingestion paths.
+A multiregion solution should remain observable when a region fails. However,
+keeping healthy regions monitored and preserving the failed region's historical
+data are different requirements.
 
-[ADR-0010](0010-active-active-multi-cluster-topology.md) remains the accepted workload topology decision. This proposal focuses specifically on telemetry-specific failure boundaries.
+Azure monitoring also has several independent paths: resource diagnostic logs,
+Container Insights, managed Prometheus, Application Insights, and Power Platform
+exports. No single replication setting protects them all.
+
+This ADR proposes an adaptable monitoring pattern for the solution accelerator.
+It complements [ADR-0010](0010-active-active-multi-cluster-topology.md)'s workload
+topology without prescribing the same recovery targets for every adopter.
 
 ## Decision drivers
 
-- Keep surviving regions observable without depending exclusively on a failed region's ingestion, query, configuration, or dashboard service.
-- Distinguish availability of future telemetry from recovery of historical data.
-- Preserve canonical call identifiers while avoiding double-counting copies.
-- Spend on redundancy according to the operational value of each stream, rather than duplicating every debug record and metric.
-- Use supported recovery mechanisms, with explicit human ownership and tested automation where feasible.
-- Respect geography, privacy, access, and retention requirements for every copy.
-- Establish measured recovery objectives before production approval. 
-
-**NOTE**: Currently, there is no validated telemetry RPO or RTO.
+- Keep healthy regions observable during another region's outage.
+- Preserve critical history without duplicating all telemetry.
+- Make recovery actions and ownership clear.
+- Balance query availability, recovery time, cost and operational effort.
+- Apply appropriate access, retention and data-residency controls to every copy.
 
 ## Considered alternatives
 
-1. **Single shared sink with in-region resilience**, i.e. send everything to one LAW. Lowest topology complexity and convenient joins. Credible for development or a workload that explicitly accepts region-wide loss of observability. Not sufficient for regional DR.
-2. **Native [Log Analytics Workspace (LAW) replication](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/workspace-replication) everywhere.** LAW has built in regional-replication capabilities.  
-   * Preserves one logical workspace identity for supported streams. 
-   * Replication is chargeable & duplication can be expensive.
-   * Switchover is customer-initiated, not automatic. Any ingestion stream that uses Data Collection Rules needs to be adjusted.
-   * The current support table excludes Application Insights over LAW and Container Insights. 
-   * It does not replicate managed Prometheus or Grafana.
-   * Overall limited regional availability & limited choice of target replication regions
-3. **Full dual ingestion into independent regional sinks**, i.e. send everything to 2 locations when possible. Gives two queryable copies where the source supports it, with independently configured retention. 
-   * Rejected overall as the default because duplicate ingestion, metric samples, queries, dashboards, alerting, and operations all add cost. 
-   * Retained for justified critical streams.
-4. **Regional single-copy collection plus selective redundancy.** Preferred baseline below. Surviving regions remain observable, while selected global and critical streams receive additional protection. Unreplicated history from a failed region can remain unavailable.
-5. **Archive or queue-mediated recovery.** Useful for audit retention or replayable custom pipelines. Storage and Event Hubs are not substitutes for an immediately queryable LAW/AMW, and a pipeline downstream of an unavailable ingestion service cannot recover data that never reached it.
+| Option | Why choose it? | Why not use it everywhere? |
+| --- | --- | --- |
+| **Shared monitoring destinations** | Simple configuration and queries | Shared regional dependencies |
+| **Native Log Analytics replication** | One logical workspace with a managed secondary copy | Customer-initiated switchover, extra charges, and service/region restrictions |
+| **Dual ingestion into independent workspaces** | Two immediately queryable copies and independent retention | Duplicate ingestion and more query/alert administration |
+| **Primary plus archive** | Potentially lower-cost historical recovery | Slower access; archive recovery or replay is required |
+| **Regional collection with selective protection** | Isolates regions and spends redundancy budget on valuable data | Some history remains unavailable unless explicitly protected |
 
-The detailed [option comparison](../monitoring/high-availability.md#strategy-options) records applicability, cost, and recovery trade-offs.
+See the [strategy comparison](../monitoring/high-availability.md#strategy-options)
+for configuration and recovery trade-offs.
 
 ## Decision
 
-**Tiered, source-specific design.**
+**Recommend regional collection as the baseline, with additional protection
+chosen separately for each telemetry path.**
 
-1. Use a regional LAW and AMW for each active application region, and a regional Application Insights component backed by that region's LAW for application telemetry. Regional single-copy collection is failure isolation, not a second copy of each region's history.
-2. Treat global or account-wide sources as independent of application traffic placement. For Front Door, ACS, Event Grid system topics, and a multiregion Cosmos DB account, select diagnostic destinations at the actual ARM resource scope. Send approved critical categories to two independent LAWs, while keeping high-volume investigation-only categories single-copy unless justified.
-3. Use source-specific AKS collection: evaluate documented namespace-based console-log multihoming with high-scale mode, without claiming it duplicates all Container Insights/ACNS streams. Validate regional support and any Prometheus duplicate-delivery/remote-write design before treating them as DR. Do not infer support from a general-purpose AMA multi-destination DCR recipe or assume native AMW regional failover was established by this research.
-4. Preprovision alternate Application Insights components **and their independent backing workspaces**. Automate application and APIM destination changes only through supported configuration surfaces, with canary verification and controlled rollout. An App Configuration value change is not proof that an exporter has changed its active destination.
-5. Keep Dynamics/Power Platform export destinations and recovery ownership explicit. Use the documented administration flow as the recovery baseline; unattended retargeting requires a verified supported API and tenant rehearsal. Account for its local-authentication requirement, one Customer Service export per environment, and documented 24-hour delivery SLA. Do not promise SaaS export replay or live detection latency.
-6. Maintain secondary query/dashboard access, rules, permissions, private connectivity, and an independent incident signal. Successful data ingestion alone is not restored observability.
-7. Require an approved source/target inventory, retention and redundancy tier, recovery objectives, and drill evidence before accepting this ADR.
+1. **Use regional destinations.** Send regional logs to a Log Analytics workspace
+   (LAW), application telemetry to Application Insights backed by a LAW in the
+   same region, and managed Prometheus metrics to an Azure Monitor workspace
+   (AMW). This isolates failures; it does not create a second historical copy.
+2. **Protect critical history according to how quickly it is needed.** Use an
+   independently recoverable archive when delayed access is acceptable. Use
+   supported dual ingestion when logs must be queryable during an incident.
+   Keep verbose, lower-value data single-copy unless requirements justify more.
+3. **Choose global-service destinations independently of traffic routing.**
+   Front Door, ACS, Event Grid system topics and multiregion Cosmos DB accounts
+   retain their configured logging destinations when workload traffic moves.
+   Designate a primary and add archive or queryable protection as needed.
+4. **Use native LAW replication selectively, not as universal monitoring DR.**
+   Evaluate it for supported logs where one logical workspace is valuable.
+   Its reviewed support matrix excludes Application Insights over LAW and
+   Container Insights; it does not recover AMW, Grafana or alert-rule resources.
+5. **Prepare source-specific recovery.** Validate AKS console-log duplication and
+   Prometheus collection separately. Prepare alternate Application Insights
+   resources with independent LAWs. App Configuration can distribute a new
+   destination, but exporters and APIM loggers must actually apply it.
+6. **Keep Power Platform/Dynamics export administrator-owned by default.**
+   Account for one Customer Service export per environment, local authentication,
+   and the documented 24-hour delivery SLA. Use unattended retargeting only after
+   confirming a supported mechanism.
+7. **Recover access and notifications too.** Prepare secondary queries,
+   dashboards, identities and alert rules, with one preferred copy for counts
+   and paging.
 
-The [per-source configuration matrix](../monitoring/high-availability.md#source-and-target-matrix) is the proposed routing contract.
+Each adopter selects acceptable data loss, required historical coverage and
+recovery time. Use the [configuration guide](../monitoring/high-availability.md#source-and-target-matrix)
+to apply this decision to individual services.
 
 ## Consequences
 
-- Most verbose telemetry is ingested once; critical data can have a higher resilience budget. Savings depend on actual volume and contract prices.
-- Cross-workspace queries replace the convenience of assuming all call evidence lives in one workspace. During an outage, queries must declare missing sources rather than interpreting missing records as successful calls.
-- Failover can split one call's telemetry between components/workspaces. Correlation identifiers and destination-change timestamps must survive.
-- Independent sinks require configuration parity and independent access checks. Native replication reduces some configuration duplication, but introduces its own support and management restrictions.
-- Not all producers can dual-write or switch without delay. The design explicitly accepts gaps only where the business has approved them.
+**Benefits**
+
+- Healthy regions are not dependent on a single monitoring region.
+- Redundancy cost follows the value of the data rather than total volume.
+- Source-specific procedures make manual and automated actions explicit.
+
+**Trade-offs**
+
+- Regional single-copy data can be inaccessible during a regional outage.
+- Archives take longer to use than an already-queryable secondary workspace.
+- Multiple workspaces require additional access, query and alert configuration.
+- Destination changes can split a transaction's history; correlation identifiers
+  and change timestamps are needed to investigate it.
+- Shorter secondary retention reduces eligible storage charges, not duplicate
+  ingestion charges.
 
 ### Operational implications
 
-Use the draft runbooks for [incident routing](../runbooks/monitoring/high-availability.md),
-[LAW and diagnostic recovery](../runbooks/monitoring/log-analytics-recovery.md),
-[AKS telemetry recovery](../runbooks/monitoring/aks-telemetry-recovery.md),
-[Application Insights retargeting](../runbooks/monitoring/application-insights-retargeting.md),
-and [Power Platform export recovery](../runbooks/monitoring/power-platform-telemetry-recovery.md).
-They are not production-certified procedures. Switchover/failback approvals,
-on-call ownership, alert deduplication, and failback stability windows must be
-recorded for each environment.
+Adapt the [monitoring recovery runbook](../runbooks/monitoring/high-availability.md)
+and its service-specific procedures to your environment. Assign owners, prepare
+alternate destinations, and test ingestion, queries, notifications and failback.
+Do not infer automatic telemetry recovery from workload failover.
 
 ### Security implications
 
-Each additional destination is another copy of potentially sensitive call
-metadata. Minimize payload capture; do not replicate audio, credentials, OTPs,
-authorization headers, or unredacted prompts as a side effect of this decision.
-Apply least privilege, approved residency, retention/deletion policies, and
-network controls to both destinations. Keep actual connection strings and
-resource inventory out of public documentation. Connection-string routing and
-ingestion authentication are separate concerns. The documented Power Platform
-export requires local authentication; isolate that requirement in an approved
-SaaS component rather than weakening Entra-only application ingestion globally.
+Every additional destination is another copy of potentially sensitive data.
+Apply least privilege, approved geography and retention to each copy; avoid
+logging credentials, audio, authorization headers or unnecessary personal data.
+
+The documented Power Platform export requires local authentication. Prefer a
+separately governed destination for it rather than weakening Entra-only
+application ingestion. Connection-string routing and authentication are separate
+configuration decisions.
 
 ## Evidence
 
-This is a proposal.
-Microsoft documentation and repository source inspection inform the
-[research guide and source register](../monitoring/high-availability.md).
-No Azure deployment, failover drill, supported-exporter hot-reload test,
-Power Platform retargeting test, cost benchmark, or end-to-end telemetry recovery
-measurement was performed for this change.
+The [Microsoft source register](../monitoring/high-availability.md#microsoft-source-register)
+supports the capability and limitation statements. This is a proposed reference
+pattern, not measured HA/DR evidence. Cost examples are **modeled**; recovery
+targets must be selected and tested for each adopting solution.
 
-Illustrative cost arithmetic is explicitly **modeled**; proposed objectives are
-**assumed** until approved; recovery outcomes are an evidence **gap**. Existing
-[local runtime evidence](../evidence/2026-09-09-dotnet-runtime-validation.md)
-does not validate telemetry HA/DR. Capture future drill results with the
+Record recovery exercise results with the
 [evidence template](../evidence/templates/evidence-record.template.md).
 
 ## Revisit triggers
 
-- Microsoft changes the replication support matrix, supported region pairs, Container Insights collection model, or managed Prometheus resilience options.
-- A supported Power Platform export-management API is verified for the required export type, permissions, environment, and recovery scenario.
-- Measured recovery time or data loss exceeds an approved source-specific target.
-- Duplicate ingestion, retention, or metric cardinality exceeds its budget.
-- Compliance requires longer recovery history or prohibits a secondary geography.
-- A change in APIM tier, cluster topology, telemetry SDK, or network architecture invalidates the tested routing/recovery path.
+- Service support, supported regions or export-management APIs change.
+- Recovery exercises miss the selected data-loss or recovery-time targets.
+- Duplicate ingestion or metric volume exceeds the budget.
+- Residency, retention or audit requirements change.
+- Changes to APIM, collectors, exporters or networking invalidate a recovery path.

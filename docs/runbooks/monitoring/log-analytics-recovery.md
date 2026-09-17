@@ -60,7 +60,7 @@ dual-destination drill.
    secondary. For native replication, use the documented Logs Query API
    `overrideWorkspaceRegion=secondary` option to audit the inactive copy.
    **Expected:** useful replicated history and a measured lag, not only a
-   successful ARM deployment.
+   successful configuration operation.
 3. Inspect all source settings, DCR/DCE associations, network routes, and caps.
    **Expected:** a table-by-table coverage list; unsupported sources remain gaps.
 4. Check the recovery runner and alert-rule region.
@@ -133,7 +133,7 @@ fields. For dual ingestion, verify both distinct workspace identities directly.
 - **Independent sinks:** restore the saved setting only after primary validation.
   Keep the alternate queryable and reconcile the split history. Remove temporary
   duplicate routing only after approval and parity checks.
-- Restore the approved IaC desired state so reconciliation does not undo recovery.
+- Record the final destination settings so later changes do not undo recovery.
 
 ## Escalation
 

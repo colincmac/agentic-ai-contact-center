@@ -97,6 +97,10 @@ extensions:
     - "provisioning and deployment automation"
     - "evidence and validation status"
   supportingPaths:
+    - id: telemetry_resilience
+      title: "Monitoring HA/DR adoption guide"
+      path: docs/monitoring/high-availability.md
+      intent: "Customer-facing guidance for choosing regional collection, archive or queryable protection, service-specific recovery, and cost trade-offs under proposed ADR-0017."
     - id: banking_demo
       title: "Banking demo adoption guide"
       path: code/ContactCenter.AIAgent/README.md

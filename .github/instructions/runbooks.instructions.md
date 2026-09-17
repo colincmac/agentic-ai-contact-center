@@ -18,3 +18,4 @@ description: Guidance for authoring and maintaining operational runbooks.
   runbook.
 - Update the runbook promptly when the system it describes changes; a
   stale runbook is worse than none because it is trusted.
+- Frame procedures as adaptable to the reader’s environment rather than assuming the demo topology.

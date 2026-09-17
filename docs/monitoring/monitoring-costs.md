@@ -2,9 +2,9 @@
 
 ## HA/DR cost model
 
-See [HA/DR cost controls](high-availability.md#cost-controls-and-the-retention-hypothesis)
+See [HA/DR cost controls](high-availability.md#costs-what-actually-saves-money)
 for selective duplication, native replication, per-table retention, metric
-cardinality, and a symbolic volume model. Shortening a secondary independent
+cardinality, and a worked volume example. Shortening a secondary independent
 workspace's retention does not remove its ingestion charges; native workspace
 replication does not expose a separately configurable short-retention shadow.
 

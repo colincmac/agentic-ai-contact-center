@@ -13,6 +13,8 @@ are not yet validated end to end. Start here, then follow the links.
 | [queries.md](queries.md) | The KQL join queries — reconstruct one call as a single ordered timeline, reconcile transfers, and see live health. |
 | [dashboards.md](dashboards.md) | The Grafana dashboard model and its panels/variables. |
 | [panel-library.md](panel-library.md) | Authoring reference for the reusable panel library — file anatomy, naming/visualization conventions, and how to add a panel or dashboard. |
+| [high-availability.md](high-availability.md) | Adoption guide: compare monitoring HA/DR options, choose regional/global destinations, understand costs, and plan recovery. |
+| [monitoring-costs.md](monitoring-costs.md) | Source volume estimates and links to the HA/DR cost model; not a measured bill. |
 
 ## The core idea (and its one honest constraint)
 
@@ -51,7 +53,7 @@ flowchart LR
 ```
 
 - **Log Analytics workspace** — ACS Call Automation logs (and, later, the Teams Graph ETL).
-- **Application Insights** — IVR traces/logs **and** D365 conversation diagnostics. Sharing one App Insights/Log Analytics workspace across the IVR and D365 makes the single-call-trace query a single-workspace union.
+- **Application Insights** — IVR traces/logs **and** D365 conversation diagnostics. Sharing a workspace simplifies the single-call query, but also shares a regional failure boundary. The [HA/DR proposal](high-availability.md) compares this with regional components/workspaces and federated queries; it is not deployed behavior.
 - **Azure Monitor Managed Prometheus** — IVR metrics (RED/USE).
 - **Azure Managed Grafana** — the single pane; queries all of the above through the built-in Azure Monitor data source via managed identity.
 
@@ -81,6 +83,10 @@ The rest of this folder describes the target integration. Verify it against the
 [current implementation map](../README.md#current-implementation) and
 [evidence limitations](../evidence/2026-09-08-code-adoption-validation.md#limitations)
 before relying on automatic enrichment or an end-to-end timeline.
+
+For regional incidents, start with the [telemetry recovery entry point](../runbooks/monitoring/high-availability.md)
+and [proposed ADR-0017](../adr/0017-telemetry-high-availability-and-disaster-recovery.md).
+Do not assume LAW replication also protects Application Insights, Container Insights, managed Prometheus, Grafana, or alert resources.
 
 ## Scope
 
